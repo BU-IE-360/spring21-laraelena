@@ -1,0 +1,84 @@
+---
+title: "Homework 1"
+author: "Lara Elena Abdünnur"
+date: "18 04 2021"
+output: html_document
+---
+
+## Analysis on Measures from Turkey and related Google Trends Data
+In this homework, the change in house prices, Dollar exchange rate and mortgage interest rates over the last five years are analyzed to examine if they have an effect on the total number of house sales in Turkey. In addition to that the search volume of the keyword "satılık ev" is compared with the total number of house sales in Tukey.
+
+### 1) Required Packages and Data 
+The Data is gathered from [EVDS](https://evds2.tcmb.gov.tr/), which is Central Bank of Republic of Turkey's Electronic Data Delivery System and from [Google trends](http://trends.google.com).
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r,warning=FALSE}
+library(zoo)
+library(ggplot2)
+library(openxlsx)
+
+housesales<-read.xlsx("C:/Users/VAİO/Desktop/housesales.xlsx",colNames = TRUE)
+housesales$Date<-as.yearmon(housesales$Date)
+
+houseprices<-read.xlsx("C:/Users/VAİO/Desktop/houseprices.xlsx",colNames = TRUE)
+houseprices$Date<-as.yearmon(houseprices$Date)
+
+interestrate<-read.xlsx("C:/Users/VAİO/Desktop/interest.xlsx",colNames = TRUE)
+interestrate$Date<-as.yearmon(interestrate$Date)
+
+usd<-read.xlsx("C:/Users/VAİO/Desktop/usd.xlsx",colNames = TRUE)
+usd$Date<-as.yearmon(usd$Date)
+
+satılıkev <-read.xlsx("C:/Users/VAİO/Desktop/satilikev.xlsx",colNames = TRUE)
+satılıkev$Ay <- as.yearmon(satılıkev$Ay)
+```
+
+
+### 1) House Sales Analysis
+There is a cyclic pattern in the total number of house sales between 2015 till the start of 2019. The sales generally tend to increase towards the fall and spring, and decrease towards the summer and the winter. This may because of people generally buy summer houses in the spring time and  search for houses during fall due to schools and job changes.
+There is an unusual increase in the beginning and in the middle of 2020. The middle of 2020 is the lock-down period. During lock-down people may tend to think that they need to change their houses and this may increased the sales.
+
+
+```{r}
+ggplot(housesales,aes(x=Date,y=Housesales))+geom_line(color="red",size=1) + ggtitle("Total Number of House Sales in Turkey")+ xlab("Date") + ylab("Number of Sold Houses")
+```
+
+### 2) House Prices Analysis
+House prices is one of the most important factors that affects house sales, that's why it is included in this analysis. Overall there is an increasing trend in the house price index over the last 5 years. Between the mid-2018 and mid-2019 the increase in the house prices slows down following that the prices experience a steep increase by the mid-2020. When we look at the corresponding periods in the plot of house sales we can see that the demand in the mid-2020 increased dramatically as well. 
+
+
+```{r}
+
+ggplot(houseprices,aes(x=Date,y=houseprices))+geom_line(color="blue",size=1) + ggtitle("House Price Index") +xlab("Date") + ylab("Index")
+```
+
+### 3) Mortgage Interest Rates Analysis
+Mortgage interest rates affects the buyers affordability that's why it's an important factor on house sales. There is no pattern can be observed in the change of Mortgage interest rates. But, there is an unusual increase towards the fall of 2018. In the fall of 2018 house sales experience an unusual decrease as well (the cyclic pattern suggests that the house sales increase in the fall). Also there is an unusual decrease in the mid of 2020 which corresponds to the period where unusual increase in the house sales observed.These can suggest that there is a linkage between the mortgage interest rates and the house sales.
+
+
+```{r}
+ggplot(interestrate,aes(x=Date,y=Rate)) +geom_line(color="purple",size=1)+ ggtitle("Mortgage Interest Rates")+xlab("Date")+ylab("Rate (%)")
+
+```
+
+### 4) USD/Turkish Lira Exchange Rate Analysis
+The increase in the house prices can be explained by the increase in the currency exchange rates since the construction materials are generally imported. USD exchange rate is following an increasing trend similar to the house price index.There are steep increases in the summer of 2018 and in the fall of 2020. Also, in the plot of house price index it can be seen that the increase is steeper in the fall of 2020 too.
+
+
+```{r}
+ggplot(usd,aes(x=Date,y=USD))+geom_line(color="orange",size=1)+ggtitle("USD Exchange Rate") +xlab("Date")+ylab("Rate (%)")
+
+```
+
+
+### 5) Search Volume of "Satılık EV" in Google Trends
+The cyclic pattern that has been observed in the house sales can be observed in the search volume of the "satılık ev" as well. The volume tend to increase towards the beginning of a year and decrease towards the middle of a year. Between 2015 and 2019 search volume seems to be steady, however there is an unusual increase in the middle of 2020. This period corresponds to the lock-down period, which may caused people to think that they need for a change. This unusual increase can also be observed in the plot of house sales as well. So, we can say that the search volume of "house for sale" and the total number of houses sold are following a similar pattern.
+
+```{r}
+ggplot(satılıkev,aes(x=Ay,y=Satılık.Ev))+geom_line(color="green",size=1)+ggtitle("Search Volume of  'Satılık Ev'") +xlab("Date")+ylab("Search Volume of 'Satılık EV'")
+```
+
+
