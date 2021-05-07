@@ -1,0 +1,231 @@
+---
+title: "Homework 2"
+author: "Lara Elena Abdünnur"
+date: "07 05 2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Time Series Regression Model for Forecasting Mortgaged Sales
+
+
+## 1. Introduction
+In this assignment we were expected to build a time series regression model for forecasting the April 2021 value of mortgaged sales in Turkey. The related data sets to be used as regressors are collected from [EVDS](https://evds2.tcmb.gov.tr). 
+I gathered 5 data sets that can be used in explaining mortgaged sales, which are USD exchange rate, mortgage interest rates, house price index, the probability of buying or constructing a house, the probability of buying a car and the financial status of the household. The collected data sets are in monthly levels and between 2013-01 and 2021-03.
+In this report you will find the analysis of the target variable, the steps of building the model, evaluation of the final model and the forecast value for April 2021.
+
+
+### Required packages and Data
+```{r cars, warning=FALSE, message=FALSE}
+library(ggplot2)
+library(zoo)
+library(openxlsx)
+library(data.table)
+library(forecast)
+library(GGally)
+data <- read.xlsx("C:/Users/VAİO/Desktop/data.xlsx",colNames = TRUE)
+data$Date <- as.yearmon(data$Date)
+sales<-as.data.table(data)
+```
+
+## 2. Analysis
+### 2.1 Target Variable
+First of all, we need to visualize the target variable to see if there is any pattern. Below you can find the line plot and the histogram of monthly mortgaged sales in Turkey.
+
+
+```{r, echo=FALSE}
+
+ggplot(data, aes(x=Date, y=mortgage)) + geom_line(color="red",size=1)+ ggtitle("Monthly Mortgaged Sales") + xlab("Date") + ylab("Mortgaged Sales")
+
+``` 
+
+
+
+We can't observe any particular pattern from the line plot. There are many ups and downs, but they are not a sign of seasonality component or cyclic pattern. Between 2013 and the start of 2018,plot has a stationary mean. However, there is a sharp decrease is mid-2018 and an abnormal increase in the summer of 2020. During pandemic, in 2020, public banks applied a discount to mortgage loan interest rates which acted as an incentive for people to buy mortgage loans.
+
+
+```{r , warning=FALSE,echo=FALSE}
+ggplot(data, aes(mortgage))+geom_histogram(bins=10,color="blue",fill="blue")+ggtitle("Histogram for Mortgaged Sales") + xlab("Mortgaged Sales") + ylab("Density")
+
+```
+
+
+Depending on the histogram we can say that the mortgage sales are normally distributed, however there are some outliers. These outliers are the sharp increase in the summer of 2020 that we observed in the line plot. 
+
+
+### 2.2 Independent Variables
+
+We must observe the related data sets to find the candidates that can be used as regressors for the time regression model. Below you can find the line plot of each data and the correlation of each variable with the mortgaged sales.
+
+
+```{r , warning=FALSE, echo=FALSE}
+data_timeseries <- ts(data,frequency=12, start=c(2015,1))
+plot(data_timeseries, main="Time Series")
+```
+
+```{r , warning=FALSE}
+#mortgage=Mortgaged Sales
+#interest=Mortgage Interest Rates
+#usd=USD Exchange Rate
+#price=House Price Index
+#status=Financial Status Of the Household
+#probhouse=Probability of Buying a House
+#probcar=Probability of Buying a Car
+```
+
+
+```{r , warning=FALSE,message=FALSE, echo=FALSE}
+ggpairs(sales[,.(mortgage,interest,probhouse,probcar,usd,status,price)])
+```
+
+
+
+As you can see, mortgaged sales data has only one significant correlation, which is with the mortgage interest rates and they are negatively correlated. That's why mortgage interest rates can be chosen as a regressor for the model.  
+ 
+
+## 3. Model Building
+
+## 3.1 Trend and Seasonality Component
+
+Now we can start to build our model. First of all let's check if there is a trend in the mortgaged sales.
+```{r,echo=FALSE}
+sales[,trend:=1:.N]
+fit1 <- lm(mortgage~trend,data=sales)
+summary(fit1)
+```
+
+
+We can conclude that this is not a valid model due to high p-value. Also the r-squared value is really small and residual standard error is really high.
+
+
+Let's check if there is any seasonality component. 
+
+```{r, warning=FALSE,echo=FALSE}
+month=seq(1,12,by=1)
+sales=cbind(sales,month)
+```
+
+```{r}
+fit2<-lm(mortgage~trend + as.factor(month),data=sales)
+summary(fit2)
+```
+
+
+```{r,echo=FALSE,message=FALSE}
+checkresiduals(fit2)
+```
+
+This is not a valid model as well, because of the same reasons. That's why we don't need to add the seasonality component. I will keep the trend variable to see if it improves with the other additions.
+
+
+## 3.2 Mortgage Interest Rates
+
+As I discussed earlier, we can use mortgage interest rates as a regressor because of its negative correlation with Mortgaged sales. 
+
+
+```{r}
+fit3 <-lm(mortgage~interest+trend,data=sales)
+summary(fit3)
+```
+
+
+This is a valid model as we can see from the small p-value. All of the regressors are valid as well. However, the residual standard error is quiet high and also the adjusted r-squared value is quiet low.
+
+```{r,echo=FALSE,message=FALSE}
+
+checkresiduals(fit3)
+
+```
+
+
+We can say that residuals are normally distributed. In the residuals plot there are abnormally large residuals, which model does not account for. This residuals are due to outliers. That's why we need to include them into our model.
+
+
+## 3.3 Outliers
+First, we need to define the outliers and then add them to our model as a dummy variable.
+
+
+```{r,echo=FALSE,message=FALSE}
+boxplot(sales$mortgage)
+boxplot.stats(sales$mortgage)$out
+sales[Date=="Haz 2020",outlier:=1]
+sales[Date=="Tem 2020",outlier:=1]
+sales[Date=="Ağu 2020",outlier:=1]
+sales[is.na(outlier)==TRUE,outlier:=0]
+```
+
+
+The outliers are observed in the summer of 2020, as we observed in the line plot. 
+
+```{r }
+fit4 <- lm(mortgage~as.factor(outlier)+interest+trend,data=sales)
+summary(fit4)
+
+```
+
+```{r,echo=FALSE, message=FALSE}
+checkresiduals(fit4)
+
+```
+
+
+Addition of the outliers, significantly improved the model; residual standard error decreased to 7967 and adjusted r-squared increased to %78.51. Also, Residuals have a better normal distribution. Since it's a sufficient model, I will choose this as my final model. However, please remark that this is not a perfect model. As we can see from the autocorrelation plot, lag 1 has a high value and still residuals do not perfectly follow the zero mean and constant variance assumption.
+
+
+## 4. Model Validation 
+
+Here are some plots for evaluation of the final model.
+
+## 4.1 Residuals Vs. Fitted
+```{r ,warning=FALSE, echo=FALSE}
+sales[,fitted:=fitted(fit4)]
+sales[,residual:=residuals(fit4)]
+ggplot(sales,aes(x=fitted,y=residual))+geom_point() + geom_abline(slope=0,intercept = 0,color="blue")+xlab("Fitted Values")+ylab("Residuals")
+```
+
+
+We can say that residuals are randomly distributed, but because of the outliers they don't really follow the zero mean assumption. 
+
+
+## 4.2 Fitted Vs. Actual
+```{r ,warning=FALSE, echo=FALSE}
+ggplot(sales, aes(x=fitted,y=mortgage))+geom_point()+geom_abline(slope=1,intercept = 0,color="blue")+xlab("Fitted Monthy Mortgage Sales")+ylab("Actual Monthy Mortgage Sales")
+```
+
+
+We can say that our model is acceptable since the fitted values are sufficiently explains the actual values
+
+## 5. Forecast
+
+The aim of this assignment was to forecast the mortgaged sales of April 2021. Since we don't have data for the mortgage interest rate of April 2021, I take the average of the last 3 months as an estimate. Finally we get the following result for the forecast of April 2021.
+
+
+```{r ,warning=FALSE, echo=FALSE}
+sales=rbind(sales,data.table(Date=as.yearmon("2021-04")),fill=TRUE)
+sales[,trend:=1:.N]
+sales[is.na(outlier)==T,outlier:=0]
+sales[is.na(interest)==T,interest:=mean(sales$interest[96:99])]
+forecast <- predict(fit4,sales[is.na(fitted)==T])
+sales[is.na(fitted)==T,fitted:=predict(fit4,sales[is.na(fitted)==T])]
+round(forecast)
+
+```
+
+
+
+## 6. Conclusion
+
+In this assignment, we tried to come up with a model for monthly mortgaged sales in Turkey and forecast the next month's mortgages sales. We used trend, mortgage interest rates and outliers as regressors in our model. Finally we analyzed our model for validation. As you can see from the graph below, the model can be considered as an acceptable model since the forecasted values can explain the actual values.
+
+
+
+### Forecasted Vs. Actual 
+```{r ,warning=FALSE, echo=FALSE}
+
+cols<- c("predicted"="red","actual"="blue")
+ggplot()+geom_line(data=sales,aes(x=Date,y=fitted,color="predicted"))+geom_line(data=sales,aes(x=Date,y=mortgage,color="actual"))+xlab("Date")+ylab("Mortgaged Sales")+ggtitle("Monthly Mortgages Sales")
+
+```
