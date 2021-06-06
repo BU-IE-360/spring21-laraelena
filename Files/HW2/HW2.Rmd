@@ -203,7 +203,7 @@ We can say that our model is acceptable since the fitted values are sufficiently
 The aim of this assignment was to forecast the mortgaged sales of April 2021. Since we don't have data for the mortgage interest rate of April 2021, I take the average of the last 3 months as an estimate. Finally we get the following result for the forecast of April 2021.
 
 
-```{r ,warning=FALSE, echo=FALSE}
+```{r ,warning=FALSE}
 sales=rbind(sales,data.table(Date=as.yearmon("2021-04")),fill=TRUE)
 sales[,trend:=1:.N]
 sales[is.na(outlier)==T,outlier:=0]
@@ -211,6 +211,7 @@ sales[is.na(interest)==T,interest:=mean(sales$interest[96:99])]
 forecast <- predict(fit4,sales[is.na(fitted)==T])
 sales[is.na(fitted)==T,fitted:=predict(fit4,sales[is.na(fitted)==T])]
 round(forecast)
+tail(sales)
 
 ```
 

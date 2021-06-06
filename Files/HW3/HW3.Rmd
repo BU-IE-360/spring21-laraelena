@@ -1,0 +1,349 @@
+---
+title: "Homework 3"
+author: "Lara Elena Abdünnur"
+date: "04 06 2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+## 1. Introduction
+
+In this homework we were asked to forecast the electricity consumption in Turkey for the next two weeks. In order to obtain an acceptable prediction, we need to analyze the data and fit a model. In this report you will find the steps of building an acceptable model. 
+
+## Required Packages and Data Preperation 
+
+You can access the hourly electricity consumption data from [EPİAŞ](https://seffaflik.epias.com.tr/transparency/) website. Below you can find some data manipulations in order to achieve a proper format. 
+
+```{r, warning=FALSE}
+library(ggplot2)
+library(stats)
+library(openxlsx)
+library(data.table)
+library(urca)
+library(forecast)
+library(lubridate)
+
+data<-read.xlsx("C:/Users/VAİO/Desktop/consumption.xlsx")
+data<-as.data.table(data)
+data$Date<-as.Date(data$Date,format = "%d.%m.%Y")
+data$Hour<-rep(seq(0,23),times=nrow(data)/24)
+index=data[Consumption==0]
+data[Date=="2016-03-27" & Hour=="2",Consumption:=mean(data[Date=="2016-03-27",Consumption])]
+```
+
+## 2. Data Visualization 
+
+First of all we need to visualize the data to get an insight.
+
+```{r, echo=FALSE}
+ggplot(data=data,aes(x=Date,y=Consumption))+geom_line()+xlab("Date")+ylab("Consumption (MWh)") +ggtitle("Hourly Electricity Consumption in Turkey")
+```
+
+
+As we can observe from the plot series have a seasonality component. During summer time there are high levels of  consumption where as during fall there are relativelty low levels. Also there is an increasing trend depending on the increasing population and several other effects. However pandemic detoriated this pattern. Due to the lockdowns the consumption decreased significantly. Additionaly due to the special days there are some unusual small consumption values. 
+
+## 3. Decomposition
+
+
+
+We can say that the series is not stationary due to the seasosonality and trend component. In order to achieve stationartiy we should decompose the data in different levels and comment on our findings.
+
+
+
+### Hourly Decomposition
+
+
+Firstly we can check if the data has a hourly pattern.
+
+
+```{r , echo=FALSE, warning=FALSE}
+hourlyts=ts(data$Consumption,frequency = 24)
+hourly_decompose=decompose(hourlyts,type="additive")
+plot(hourly_decompose)
+plot(hourly_decompose$seasonal[1:168],type='l',ylab="Consumption",xlab="Time",main="Seasonality")
+
+```
+
+
+
+
+
+In order to have a better visualisation, I plotted the seasonality component over a 1 week period. We can say that there is a hourly patern. The consumotion tend to decrease in the midnight and increase during the daytime. 
+
+We can't make a definite comment on the trend component since it doesn't have a particular pattern. Sometimes it's increasing and sometines it's decreasing. 
+
+We can say that the random component is following the zero mean and constant variance assumption, although there are some unusual observations. We can check the stationarity of the decomposed data using the kpss test.
+
+
+```{r , echo=FALSE}
+test_hourly=ur.kpss(hourly_decompose$random)
+summary(test_hourly)
+```
+
+
+The value of the test statistic is very low, which shows that the hourly decomposed data is stationary. 
+
+### Daily Decomposition 
+
+
+Now, we will observe if the data has a daily pattern by using the frequency value equal to 168. 
+
+
+```{r , echo=FALSE}
+dailyts=ts(data$Consumption,frequency = 168)
+daily_decompose=decompose(dailyts,type="additive")
+plot(daily_decompose)
+plot(daily_decompose$seasonal[1:168],type='l',ylab="Consumption",xlab="Time",main="Seasonality")
+```
+
+
+
+We can observe that there is a daily pattern.The consumption is decreasing during the weekends and increasing during the weekdays. The consumption level is lowest on sundays.
+
+Again trend component doesn't have a specific pattern. The random component is seems to be following the zero mean assumption better than the previous level. In order to check for the stationarity we can apply the kpss test.
+
+
+
+
+```{r , echo=FALSE}
+test_daily=ur.kpss(daily_decompose$random)
+summary(test_daily)
+```
+
+
+
+The value of the test statistic is very low, which shows that the daily decomposed data is stationary too. 
+
+
+
+### Monthly Decomposition
+
+
+```{r , echo=FALSE}
+monthlyts=ts(data$Consumption,frequency=8736)
+monthly_decompose=decompose(monthlyts,type="additive")
+plot(monthly_decompose)
+```
+
+
+
+The trend component is much more smoother than the previous levels'. We can say that there tend to be an increasing trend. 
+
+There is a monthly seasonality as well. The consumption is much higher during the summer and winter times than during the fall and spring times.
+
+The random component seems to be failing to follow the constant variance assumption. We can check if the data is stationary using the kpss test.
+
+
+```{r , echo=FALSE}
+test_monthly=ur.kpss(monthly_decompose$random)
+summary(test_monthly)
+```
+The value of the test statistic is higher than the critical values, which shows that the monthly decomposed data is not stationary. 
+
+## Final Decision
+
+
+Finally we will continue with the daily decomposed data where we use the frequency equal to 168, and assume that there is an hourly and daily seasonality. Above, you can find my comments on the daily and seasonality components. 
+
+Below you can find the detrended and deseasonalized version of the daily time series, which is the random component.
+
+```{r , echo=FALSE, warning=F}
+data[,Daily_Random:=daily_decompose$random]
+ggplot(data=data,aes(x=Date, y=Daily_Random)) + geom_line()+xlab("Time") +ylab("Electricity Consumption") +ggtitle("Random Component")
+```
+
+## 5. AR Models
+
+
+
+Since we achieved stationarity, now we can start to building our model. First we will find the auto 
+regressive parameter of our model. That's why we should check the auto correlation of the random component.
+
+
+```{r , echo=FALSE}
+deseasonalized<-daily_decompose$random
+ggAcf(deseasonalized,lag.max=168)
+```
+
+
+
+
+
+
+As we can observe from the autocorrelation plot there is a sinusoidal pattern. There is a decreasing trend in the values and the spikes are observed approximately in every 24 lags.
+
+
+
+Now starting from p=1, we will fit arima models and choose the one with the lowest AIC and BIC value.
+
+```{r , echo=FALSE}
+model1<-arima(deseasonalized,order=c(1,0,0))
+c(AIC=AIC(model1),BIC=BIC(model1))
+model2<-arima(deseasonalized,order=c(2,0,0))
+c(AIC=AIC(model2),BIC=BIC(model2))
+model3<-arima(deseasonalized,order=c(3,0,0))
+c(AIC=AIC(model3),BIC=BIC(model3))
+model4<-arima(deseasonalized,order=c(4,0,0))
+c(AIC=AIC(model4),BIC=BIC(model4))
+model5<-arima(deseasonalized,order=c(5,0,0))
+c(AIC=AIC(model5),BIC=BIC(model5))
+```
+
+
+
+
+The AIC value is the lowest in p=5. We can say that AIC will continue decreasing, however it's inefficient to continue trying other p values. P=5 is a sufficient choice in our situation. 
+
+
+
+
+
+## 6. MA Models
+
+
+
+Now, will decide on our q parameter. First of all we can check the partial autocorrelation plot.
+
+
+
+
+```{r , echo=FALSE}
+ggPacf(deseasonalized,lag.max=50)
+```
+
+
+
+
+
+
+
+The partial autocorrelation plot seems to be sinusoidal as well. The spikes are observe in lags; 2, 4 and 25. Now we can try different q values starting from q=1 and decide on an appopriate one depending on the AIC and BIC values.
+
+
+
+
+```{r , echo=FALSE}
+model7<-arima(deseasonalized,order=c(0,0,1))
+c(AIC=AIC(model7),BIC=BIC(model7))
+model8<-arima(deseasonalized,order=c(0,0,2))
+c(AIC=AIC(model8),BIC=BIC(model1))
+model9<-arima(deseasonalized,order=c(0,0,3))
+c(AIC=AIC(model9),BIC=BIC(model9))
+model10<-arima(deseasonalized,order=c(0,0,4))
+c(AIC=AIC(model10),BIC=BIC(model10))
+model11<-arima(deseasonalized,order=c(0,0,5))
+c(AIC=AIC(model11),BIC=BIC(model11))
+```
+
+
+
+
+The lowest AIC value is in q=5. We can say that AIC will continue decreasing here as well, however it's inefficient to continue trying other q values. Q=5 is a sufficient choice in our situation. 
+
+
+
+## 7. ARMA Models
+
+
+
+Finally our aim is to build an ARMA model. I will try different p and q values in order to achieve the lowest AIC value. 
+
+
+
+```{r , echo=FALSE, warning=FALSE}
+model12<-arima(deseasonalized,order=c(5,0,5))
+c(AIC=AIC(model12),BIC=BIC(model12))
+model13<-arima(deseasonalized,order=c(5,0,4))
+c(AIC=AIC(model13),BIC=BIC(model13))
+model14<-arima(deseasonalized,order=c(4,0,5))
+c(AIC=AIC(model14),BIC=BIC(model14))
+model15<-arima(deseasonalized,order=c(4,0,4))
+c(AIC=AIC(model15),BIC=BIC(model15))
+
+```
+
+
+
+
+
+After 4 trials I found the lowest AIC value in the model with p=4 and q=4. So, I will choose this model as my final one for making the forecasts. Below you can find the coefficients of the model. 
+
+Before making our forecasts we can check the model by looking at some plots. 
+
+
+
+
+```{r , echo=FALSE}
+finalmodel<-model15
+print(finalmodel)
+checkresiduals(finalmodel)
+```
+
+
+
+
+
+
+
+
+
+
+
+From the residual plots above, we can say that the residuals are following a normal distribution and zero mean assumption. However there is definitely an autocorellation and high variance at some points possibly due to the unusual observations.
+
+```{r , echo=FALSE}
+fitted=deseasonalized-finalmodel$residuals
+fitted_transformed=fitted+daily_decompose$trend+daily_decompose$seasonal
+data[,Fitted:=fitted_transformed]
+ggplot(data=data[45000:47124],aes(x=Date))+geom_line(aes(y=Fitted),color="red")+geom_line(aes(y=Consumption),color="blue")+ylab("Consumption")+ggtitle("Electricity Consumption Fitted Vs. Actual")
+```
+
+
+As observed from the Fitted vs. the Actual graph we can say that the model is adequate enough to explain the data.
+
+## 8. Forecasts
+
+In this part we will make the forecasts starting from the 6th the of May 2021 to 20th of May 2021. 
+In order to make our forecasts we need to make some adjustments in our data. Since we are making hourly predictions, we need to make 336 (24*14) units ahead forecasts. Also, we need to account for the missing 84 values due to the frequency value. That's why we are going to make 420 (336+84) units ahead forecasts. We will use the last trend value and the latest seasonal values.
+
+Below you can find the forecasted values.
+
+```{r }
+last_trend<-tail(daily_decompose$trend[!is.na(daily_decompose$trend)],1)
+seasonal=daily_decompose$seasonal[46789:47208]
+model_forecast=predict(finalmodel,n.ahead=420)$pred
+model_forecast=model_forecast+last_trend+seasonal
+
+
+```
+
+## 9. Evaluation 
+In order to evaluate our model we will use some metrics which are forecast bias, mean absolute percentage error and weighted mean absolute percentage error. 
+
+```{r , echo=FALSE}
+
+forecasted=tail(model_forecast,336)
+actual=tail(data$Consumption,336)
+
+error=actual-forecasted
+FBias=sum(error)/sum(actual)
+MAPE=sum(abs(error/actual))/length(actual)
+MAD=sum(abs(error))/sum(abs(actual))
+WMAPE=MAD/mean(actual)
+Measures=c(FBias=FBias,MAPE=MAPE,WMAPE=WMAPE)
+Measures
+
+```
+
+As you can see the results are very low, which indicates that the model is sufficient. 
+
+
+## 10. Conclusion
+
+
+In this assignment our aim was to build a model by following some steps. Firstly we were asked to decompose our data and obtain a stationary series and then explain the random component using an ARMA model. Our final model was (p=4,d=0,q=4). Finaly we were asked to make forecasts for the next two weeks and evaluate our model using some metrics. 
+
+We can say that the model is failed to account for some unusual patterns like special days. That's why it would be a better idea to build a SARIMA model, which uses additional regressors. On the other hand we can say that the model is a sufficient one, which roughly explains the electricity consumption pattern in Turkey, as the metrics are appeared to be low. 
+
