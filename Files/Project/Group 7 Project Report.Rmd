@@ -1,0 +1,793 @@
+---
+title: "IE 360 Project Report "
+author: "Group 7: Lara Elena Abdünnur, Emirhan Esen, Alp Çıtıroğlu"
+date: "7/1/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## 1. Introduction
+
+In today’s world digitalization is an increasing trend, and online shopping is becoming one of the most important business around the World. Approximately everyday billions of people buy different kinds of products online.
+
+In Turkey, Trendyol is one of the most popular e-commerce platforms. In this project, we were asked to build models for forecasting the next day sales of 9 different products that are sold in Trendyol. 
+
+Trendyol provided us the sales data starting from May 2020, with additional explanatory variables. These are; average price of the items sold, number of items sold, number of visits to the particular product, number of times the product is added to favorites, number of times the product is added to basket, number of items sold from the same category, number of items sold from the same brand, visits to the category of the item, total Trendyol visits in the given day.
+
+We were divided into groups of three. Each group provided their forecasts between June 12-16. The submissions are evaluated using the weighted mean absolute percentage error (WMAPE). 
+
+As group 7, in this report we explained our approaches on building the forecasting models for each product. We had three main approaches which are linear regression, ARIMA and ARIMAX. We decided on our final model based on the MAPE and FBias values. Finally, we made forecasts for the next day’s sales with our final model. 
+
+
+## 2. Related Literature
+
+Before starting Project, we studied Datacamp courses to understand how to apply our knowledge on forecasting time series using R. Also, we made use of the provided course materials; codes, related videos and books while building our models.
+
+## 3. Approach
+
+The first step was to visualize the data and do the necessary cleanings and manipulations. The given data is between 25-05-2020 and 1-05-2020; and the robust data provides data till one day before the actual date. In order to build our models with the maximum possible number of data, we combined these two data sets. There were many explanatory variables provided. However, some of them had too many missing out values. Hence, we avoided using them as regressors. For example, “price” has too many missing values, probably because when there are no sales, price is left as undetermined. We also added the weekday information, since the customer behavior changes according to the weekdays. After we complete the manipulations, for the sake of simplicity we divided the data according to the product IDs. 
+Each product has a different sales behavior, that’s why every product can be explained by different regressors. In order to find which input attributes can be used as regressors, we built linear regression models and checked their significance with the sold_count attribute. Also, we visualized the correlations by plotting each attribute with sold_count using ggpairs function. After we decided on the regressors, we built regression matrices for each product. Before starting to build our models, we separated the data as test and train set in order to evaluate each model on a one month period. Then we started building our models with three main approaches, which are linear regression, ARIMA and ARIMAX. 
+
+First, we built a linear regression model, which predicts the future values based on one or more input attributes. We built the model with determined regressors and made the forecasts the test period. Then we built an ARIMA model, which combines auto regressive and moving average approaches to make predictions from a time series based on past data. We transformed each data set to a time series object with frequency value of 7, since nearly all of the products have daily seasonality. Then used the auto.arima function, which provides the best model after comparing several different parameter values. Then we made the forecasts over the test period with the provided model. Finally, we built an ARIMAX model, which makes predictions using an ARIMA model with regressors. We found the best model using the auto.arima function and made the forecasts over the test period. We compared the results of the three approaches for each product and decided on the final models.
+
+## 4. Results
+
+As mentioned above we used three approaches, which are linear regression, ARIMA and ARIMAX. In order to find the best model, we evaluated the approaches using the “accu” function, which gives six different performance measures. However, we compared the models based on the MAPE (Mean Absolute Percentage Error) and FBias values. MAPE is used to evaluate the accuracy of the models and low values are preferred. FBias is an important indicator on whether we are predicting under or over the actual values. The inventory plans are made based on the forecasted volume of sales, so we would prefer to make over predictions to avoid stock-outs. That’s why we preferred negative FBias values. 
+Finally, we made our forecasts for the next day using the best models. For most of the products ARIMA approach provided the best results. Below you can find the results of our forecasts. Note that the 1st group obtains 19 points, the 2nd group obtains 18 points, and the other groups obtains points accordingly. Unfortunately, our models didn’t perform very well. Future implementation strategies are discussed in the conclusion section to improve our forecasts. 
+
+
+![Table 1: Results](results.png)
+
+## 5. Conclusions and Future Work 
+
+The aim of this project was to build models that are forecasting the next day's sale quantities of 9 different products of Trendyol. There are several approaches to create a forecasting model and we used three of them, which are linear regression, ARIMA and ARIMAX. We evaluated each of these approaches for each product by making predictions over a one-month test period. We chose the best model based on the MAPE and FBias values. ARIMA model is used in predicting the sales of baby wipes, coat, facial cleanser and headphones; Linear regression model is used in bikini top 1, bikini top 2 and toothbrush; ARIMAX model is used in vacuum cleaner and tight. 
+
+Our models didn’t perform very well on forecasting the next day’s sales, which shows that we need to improve our approach. The data has many outliers due to some special days like Black Friday, which creates peaks on the sold_count. That’s why future implementations might be cleaning the data from the outliers and replacing them with the average of the previous 3 days. A similar operation can be applied to input attributes as well, since some of them have many missing values. Furthermore, we can improve our method of choosing and predicting the regressors. Also, we can use of different approaches. 
+
+Overall, this project gave us a chance to test our knowledge on forecasting time series with a real-world application. This was a valuable experience where we gained insights from a leading e-commerce platform in Turkey, Trendyol.  
+
+
+## 6. Code 
+
+```{r, eval=FALSE}
+# install the required packages first
+require(jsonlite)
+require(httr)
+require(data.table)
+require(lubridate)
+require(ggplot2)
+require(forecast)
+require(zoo)
+
+get_token <- function(username, password, url_site){
+    
+    post_body = list(username=username,password=password)
+    post_url_string = paste0(url_site,'/token/')
+    result = POST(post_url_string, body = post_body)
+
+    # error handling (wrong credentials)
+    if(result$status_code==400){
+        print('Check your credentials')
+        return(0)
+    }
+    else if (result$status_code==201){
+        output = content(result)
+        token = output$key
+    }
+
+    return(token)
+}
+
+get_data <- function(start_date='2021-06-01', token, url_site){
+    
+    post_body = list(start_date=start_date,username=username,password=password)
+    post_url_string = paste0(url_site,'/dataset/')
+    
+    header = add_headers(c(Authorization=paste('Token',token,sep=' ')))
+    result = GET(post_url_string, header, body = post_body)
+    output = content(result)
+    data = data.table::rbindlist(output)
+    data[,event_date:=as.Date(event_date)]
+    data = data[order(product_content_id,event_date)]
+    return(data)
+}
+
+
+send_submission <- function(predictions, token, url_site, submit_now=F){
+    
+    format_check=check_format(predictions)
+    if(!format_check){
+        return(FALSE)
+    }
+    
+    post_string="list("
+    for(i in 1:nrow(predictions)){
+        post_string=sprintf("%s'%s'=%s",post_string,predictions$product_content_id[i],predictions$forecast[i])
+        if(i<nrow(predictions)){
+            post_string=sprintf("%s,",post_string)
+        } else {
+            post_string=sprintf("%s)",post_string)
+        }
+    }
+    
+    submission = eval(parse(text=post_string))
+    json_body = jsonlite::toJSON(submission, auto_unbox = TRUE)
+    submission=list(submission=json_body)
+    
+    print(submission)
+    # {"31515569":2.4,"32737302":2.4,"32939029":2.4,"4066298":2.4,"48740784":2.4,"6676673":2.4, "7061886":2.4, "73318567":2.4, "85004":2.4} 
+
+    if(!submit_now){
+        print("You did not submit.")
+        return(FALSE)      
+    }
+    
+
+    header = add_headers(c(Authorization=paste('Token',token,sep=' ')))
+    post_url_string = paste0(url_site,'/submission/')
+    result = POST(post_url_string, header, body=submission)
+    
+    if (result$status_code==201){
+        print("Successfully submitted. Below you can see the details of your submission")
+    } else {
+        print("Could not submit. Please check the error message below, contact the assistant if needed.")
+    }
+    
+    print(content(result))
+    
+}
+
+check_format <- function(predictions){
+    
+    if(is.data.frame(predictions) | is.data.frame(predictions)){
+        if(all(c('product_content_id','forecast') %in% names(predictions))){
+            if(is.numeric(predictions$forecast)){
+                print("Format OK")
+                return(TRUE)
+            } else {
+                print("forecast information is not numeric")
+                return(FALSE)                
+            }
+        } else {
+            print("Wrong column names. Please provide 'product_content_id' and 'forecast' columns")
+            return(FALSE)
+        }
+        
+    } else {
+        print("Wrong format. Please provide data.frame or data.table object")
+        return(FALSE)
+    }
+    
+}
+
+# this part is main code
+subm_url = 'http://46.101.163.177'
+
+u_name = "Group7"
+p_word = "fhXTnDFq22s8POIk"
+submit_now = FALSE
+
+username = u_name
+password = p_word
+
+token = get_token(username=u_name, password=p_word, url=subm_url)
+data = get_data(token=token,url=subm_url)
+
+predictions=unique(data[,list(product_content_id)])
+predictions
+
+send_submission(predictions, token, url=subm_url, submit_now=T)
+
+rawdata2 = fread("project.csv")
+rawdata2[, price := as.numeric(gsub(",", ".", price))]
+rawdata2$price
+str(rawdata2)
+rawdata2[, product_content_id := as.character(product_content_id)]
+rawdata2$product_content_id
+rawdata2[, event_date := as.Date(event_date , format("%d.%m.%Y"))]
+
+rawdata2 = rbind(rawdata2,data)
+rawdata2 = rawdata2[order(event_date , decreasing = TRUE)]
+rawdata2[,w_day:=as.character(lubridate::wday(event_date,label=T))]
+
+# datayı productlara bölüyoruz
+data_mont <- rawdata2[product_content_id==48740784]
+data_bikini1 <- rawdata2[product_content_id==73318567]
+data_bikini2 <- rawdata2[product_content_id==32737302]
+data_tayt <- rawdata2[product_content_id==31515569]
+data_kulaklik <- rawdata2[product_content_id==6676673]
+data_supurge <- rawdata2[product_content_id==7061886]
+data_yuztem <- rawdata2[product_content_id==85004]
+data_oralb <- rawdata2[product_content_id==32939029]
+data_mendil <- rawdata2[product_content_id==4066298]
+
+train_start=as.Date('2020-05-25')
+test_start=as.Date('2021-05-28')
+test_end=as.Date('2021-05-31')
+
+test_dates=seq(test_start,test_end,by='day')
+test_dates
+
+#############
+#reporting accuracy
+accu=function(actual,forecast){
+    n=length(actual)
+    error=actual-forecast
+    mean=mean(actual)
+    sd=sd(actual)
+    CV=sd/mean
+    FBias=sum(error)/sum(actual)
+    MAPE=sum(abs(error/actual))/n
+    RMSE=sqrt(sum(error^2)/n)
+    MAD=sum(abs(error))/n
+    MADP=sum(abs(error))/sum(abs(actual))
+    WMAPE=MAD/mean
+    l=data.frame(n,mean,sd,CV,FBias,MAPE,RMSE,MAD,MADP,WMAPE)
+    return(l)
+}
+
+
+#Suppose we introduce linear regression-based approaches.
+forecast_with_lr=function(fmla, data,forecast_data){
+    fitted_lm=lm(as.formula(fmla),data)
+    forecasted=predict(fitted_lm,forecast_data)
+    return(list(forecast=as.numeric(forecasted),model=fitted_lm))
+}
+
+# forecast with ARIMA models
+forecast_with_arima=function(data,forecast_ahead,target_name,cat_name,
+                             is_seasonal=F,is_stepwise=F,is_trace=T,is_approx=F){
+    command_string=sprintf(cat_name,target_name)
+    print(command_string)
+    eval(parse(text=command_string))
+    
+    fitted=auto.arima(input_series,seasonal=is_seasonal,
+                      trace=is_trace,stepwise=is_stepwise,approximation=is_approx)
+    
+    forecasted=forecast(fitted,h=forecast_ahead)
+    return(list(forecast=as.numeric(forecasted$mean),model=fitted))
+}
+
+
+## Tight
+tayt3 = data_tayt[,-(2:3)]
+tayt3$w_day = as.factor(tayt3$w_day)
+lm_tayt = lm(sold_count~. , tayt3)
+summary(lm_tayt)
+
+forecast_ahead=1
+regressor_tayt = cbind(data_tayt$basket_count,data_tayt$category_favored,data_tayt$category_visits,data_tayt$category_sold)
+results=vector('list',length(test_dates))
+i=1
+for(i in 1:length(test_dates)){
+current_date=test_dates[i]-forecast_ahead
+
+past_data=data_tayt[event_date<=current_date]
+forecast_data=data_tayt[event_date==test_dates[i]]
+
+# lm models
+fmla='sold_count~category_visits+category_favored+basket_count+category_sold'
+forecasted=forecast_with_lr(fmla,past_data,forecast_data)
+forecast_data[,lm_prediction:=forecasted$forecast]
+
+# arima model with auto.arima
+arima_forecast=forecast_with_arima(past_data,forecast_ahead,'sold_count','input_series=data_tayt$%s')
+forecast_data[,arima_prediction:=arima_forecast$forecast]
+
+#arimax model
+tayt_arimax = auto.arima(data_tayt$sold_count, xreg = regressor_tayt)
+forecasted=round(forecast(tayt_arimax, xreg = tail(regressor_tayt,1), h = 1 )$mean)
+forecast_data[,arimax:=as.numeric(forecasted)]
+
+results[[i]]=forecast_data
+}
+
+overall_results=rbindlist(results)
+melted_result=melt(overall_results,c('event_date','sold_count'),c('lm_prediction','arima_prediction','arimax'))
+performance=melted_result[,accu(sold_count,value),by=list(variable)]
+
+performance=melted_result[,accu(sold_count,value),by=list(event_date,variable)]
+performance[,day_of_week:=wday(event_date,label=T)]
+
+#performances each day of week
+ggplot(performance, aes(x=day_of_week, y=MAPE,fill=variable)) + 
+    geom_boxplot() + ylim(0,5)
+
+ggplot(performance, aes(x=day_of_week, y=FBias,fill=variable)) + 
+    geom_boxplot() + ylim(-5,0)
+
+
+
+
+
+## Baby Wipes
+
+mendil3 = data_mendil[,-(2:3)]
+mendil3$w_day = as.factor(mendil3$w_day)
+lm_mendil = lm(sold_count~. , mendil3)
+summary(lm_mendil)
+# basket_count category_sold category_brand_sold category_visits category_favored
+
+forecast_ahead=1
+
+regressor_mendil = cbind(data_mendil$basket_count,data_mendil$category_favored,data_mendil$category_sold,data_mendil$category_visits)
+
+results=vector('list',length(test_dates))
+i=1
+for(i in 1:length(test_dates)){
+    current_date=test_dates[i]-forecast_ahead
+    
+    past_data=data_mendil[event_date<=current_date]
+    forecast_data=data_mendil[event_date==test_dates[i]]
+    
+    # first lm models
+    fmla='sold_count~basket_count+category_sold+category_visits+category_favored'
+    forecasted=forecast_with_lr(fmla,past_data,forecast_data)
+    forecast_data[,lm_prediction:=forecasted$forecast]
+    
+    # arima model with auto.arima
+    arima_forecast=forecast_with_arima(past_data,forecast_ahead,'sold_count','input_series=data_mendil$%s')
+    forecast_data[,arima_prediction:=arima_forecast$forecast]
+    
+    #arimax model
+    mendil_arimax = auto.arima(data_mendil$sold_count, xreg = regressor_mendil)
+    forecasted=round(forecast(mendil_arimax, xreg = tail(regressor_mendil,1), h = 1 )$mean)
+    forecast_data[,arimax:=as.numeric(forecasted)]
+    
+    
+    results[[i]]=forecast_data
+}
+
+overall_results=rbindlist(results)
+melted_result=melt(overall_results,c('event_date','sold_count'),c('lm_prediction','arima_prediction','arimax'))
+performance=melted_result[,accu(sold_count,value),by=list(variable)]
+
+performance=melted_result[,accu(sold_count,value),by=list(event_date,variable)]
+performance[,day_of_week:=wday(event_date,label=T)]
+performance
+#performance
+ggplot(performance, aes(x=day_of_week, y=MAPE,fill=variable)) + 
+    geom_boxplot() + ylim(0,1)
+ggplot(performance, aes(x=day_of_week, y=FBias,fill=variable)) + 
+    geom_boxplot() + ylim(-1,1)
+
+## Coat
+mont3 = data_mont[,-(2:3)]
+mont3$w_day = as.factor(mont3$w_day)
+lm_mont = lm(sold_count~. , mont3)
+summary(lm_mont)
+#basket_count & category_favored
+regressor_mont = cbind(data_mont$basket_count,data_mont$category_favored)
+forecast_ahead=1
+
+results=vector('list',length(test_dates))
+i=1
+for(i in 1:length(test_dates)){
+    current_date=test_dates[i]-forecast_ahead
+    
+    past_data=data_mont[event_date<=current_date]
+    forecast_data=data_mont[event_date==test_dates[i]]
+    
+    # first lm models
+    fmla='sold_count~basket_count+category_favored'
+    forecasted=forecast_with_lr(fmla,past_data,forecast_data)
+    forecast_data[,lm_prediction:=forecasted$forecast]
+    
+    # arima model with auto.arima
+    arima_forecast=forecast_with_arima(past_data,forecast_ahead,'sold_count','input_series=data_mont$%s')
+    forecast_data[,arima_prediction:=arima_forecast$forecast]
+    
+    #arimax
+    mont_arimax = auto.arima(data_mont$sold_count, xreg = regressor_mont)
+    forecasted=round(forecast(mont_arimax, xreg = tail(regressor_mont,1), h = 1 )$mean)
+    forecast_data[,arimax:=as.numeric(forecasted)]
+    
+    results[[i]]=forecast_data
+}
+
+overall_results=rbindlist(results)
+melted_result=melt(overall_results,c('event_date','sold_count'),c('lm_prediction','arima_prediction','arimax'))
+performance=melted_result[,accu(sold_count,value),by=list(variable)]
+
+
+performance=melted_result[,accu(sold_count,value),by=list(event_date,variable)]
+performance[,day_of_week:=wday(event_date,label=T)]
+
+#performance
+ggplot(performance, aes(x=day_of_week, y=MAPE,fill=variable)) + 
+    geom_boxplot() + ylim(0,2.5)
+
+ggplot(performance, aes(x=day_of_week, y=FBias,fill=variable)) + 
+    geom_boxplot() + ylim(-0.5,1.5)
+
+## Bikini Top 1 
+
+bikini13 = data_bikini1[,-(2:3)]
+bikini13$w_day = as.factor(bikini13$w_day)
+lm_bikini1 = lm(sold_count~. , bikini13)
+summary(lm_bikini1)
+# basket_count category_sold 
+
+forecast_ahead=1
+
+regressor_bikini1 = cbind(data_bikini1$basket_count,data_bikini1$category_sold)
+
+results=vector('list',length(test_dates))
+i=1
+for(i in 1:length(test_dates)){
+    current_date=test_dates[i]-forecast_ahead
+    
+    past_data=data_bikini1[event_date<=current_date]
+    forecast_data=data_bikini1[event_date==test_dates[i]]
+    
+    # first lm models
+    fmla='sold_count~basket_count+category_sold'
+    forecasted=forecast_with_lr(fmla,past_data,forecast_data)
+    forecast_data[,lm_prediction:=forecasted$forecast]
+    
+    # arima model with auto.arima
+    arima_forecast=forecast_with_arima(past_data,forecast_ahead,'sold_count','input_series=data_bikini1$%s')
+    forecast_data[,arima_prediction:=arima_forecast$forecast]
+    
+    bikini1_arimax = auto.arima(data_bikini1$sold_count, xreg = regressor_bikini1)
+    forecasted=round(forecast(bikini1_arimax, xreg = tail(regressor_bikini1,1), h = 1 )$mean)
+    forecast_data[,arimax:=as.numeric(forecasted)]
+    
+    results[[i]]=forecast_data
+}
+
+overall_results=rbindlist(results)
+melted_result=melt(overall_results,c('event_date','sold_count'),c('lm_prediction','arima_prediction','arimax'))
+performance=melted_result[,accu(sold_count,value),by=list(variable)]
+
+
+performance=melted_result[,accu(sold_count,value),by=list(event_date,variable)]
+performance[,day_of_week:=wday(event_date,label=T)]
+
+#performance
+ggplot(performance, aes(x=day_of_week, y=MAPE,fill=variable)) + 
+    geom_boxplot() + ylim(0,1)
+
+ggplot(performance, aes(x=day_of_week, y=FBias,fill=variable)) + 
+    geom_boxplot() + ylim(-1,1)
+
+## Bikini Top 2 
+
+bikini23 = data_bikini2[,-(2:3)]
+bikini23$w_day = as.factor(bikini23$w_day)
+lm_bikini2 = lm(sold_count~. , bikini23)
+summary(lm_bikini2)
+# basket_count category_sold 
+
+forecast_ahead=1
+regressor_bikini2 = cbind(data_bikini2$basket_count,data_bikini2$category_sold)
+results=vector('list',length(test_dates))
+i=1
+for(i in 1:length(test_dates)){
+    current_date=test_dates[i]-forecast_ahead
+    
+    past_data=data_bikini2[event_date<=current_date]
+    forecast_data=data_bikini2[event_date==test_dates[i]]
+    
+    # first lm models
+    fmla='sold_count~basket_count+category_sold+category_favored'
+    forecasted=forecast_with_lr(fmla,past_data,forecast_data)
+    forecast_data[,lm_prediction:=forecasted$forecast]
+    
+    # arima model with auto.arima
+    arima_forecast=forecast_with_arima(past_data,forecast_ahead,'sold_count','input_series=data_bikini2$%s')
+    forecast_data[,arima_prediction:=arima_forecast$forecast]
+    
+    #arimax model
+    bikini2_arimax = auto.arima(data_bikini2$sold_count, xreg = regressor_bikini2)
+    forecasted=round(forecast(bikini2_arimax, xreg = tail(regressor_bikini2,1), h = 1 )$mean)
+    forecast_data[,arimax:=as.numeric(forecasted)]
+    
+    results[[i]]=forecast_data
+}
+
+overall_results=rbindlist(results)
+melted_result=melt(overall_results,c('event_date','sold_count'),c('lm_prediction','arima_prediction','arimax'))
+performance=melted_result[,accu(sold_count,value),by=list(variable)]
+
+performance=melted_result[,accu(sold_count,value),by=list(event_date,variable)]
+performance[,day_of_week:=wday(event_date,label=T)]
+
+#performance
+ggplot(performance, aes(x=day_of_week, y=MAPE,fill=variable)) + 
+    geom_boxplot() + ylim(0,1)
+
+ggplot(performance, aes(x=day_of_week, y=FBias,fill=variable)) + 
+    geom_boxplot() + ylim(-1,1)
+
+## Headphones
+kulaklik3 = data_kulaklik[,-(2:3)]
+kulaklik3$w_day = as.factor(kulaklik3$w_day)
+lm_kulaklik = lm(sold_count~. , kulaklik3)
+summary(lm_kulaklik)
+# basket_count category_sold category_visits category_favored
+
+forecast_ahead=1
+regressor_kulaklik = cbind(data_kulaklik$basket_count,data_kulaklik$category_favored,data_kulaklik$category_visits)
+results=vector('list',length(test_dates))
+i=1
+for(i in 1:length(test_dates)){
+    current_date=test_dates[i]-forecast_ahead
+    
+    past_data=data_kulaklik[event_date<=current_date]
+    forecast_data=data_kulaklik[event_date==test_dates[i]]
+    
+    # first lm models
+    fmla='sold_count~basket_count+category_sold+category_visits+category_favored'
+    forecasted=forecast_with_lr(fmla,past_data,forecast_data)
+    forecast_data[,lm_prediction:=forecasted$forecast]
+    
+    # arima model with auto.arima
+    arima_forecast=forecast_with_arima(past_data,forecast_ahead,'sold_count','input_series=data_kulaklik$%s')
+    forecast_data[,arima_prediction:=arima_forecast$forecast]
+    
+    #arimax model
+    kulaklik_arimax = auto.arima(data_kulaklik$sold_count, xreg = regressor_kulaklik)
+    forecasted=round(forecast(kulaklik_arimax, xreg = tail(regressor_kulaklik,1), h = 1 )$mean)
+    forecast_data[,arimax:=as.numeric(forecasted)]
+    
+    results[[i]]=forecast_data
+}
+
+overall_results=rbindlist(results)
+melted_result=melt(overall_results,c('event_date','sold_count'),c('lm_prediction','arima_prediction','arimax'))
+performance=melted_result[,accu(sold_count,value),by=list(variable)]
+
+
+performance=melted_result[,accu(sold_count,value),by=list(event_date,variable)]
+performance[,day_of_week:=wday(event_date,label=T)]
+
+#performance
+ggplot(performance, aes(x=day_of_week, y=MAPE,fill=variable)) + 
+    geom_boxplot() + ylim(0,1)
+
+ggplot(performance, aes(x=day_of_week, y=FBias,fill=variable)) + 
+    geom_boxplot() + ylim(-1,1)
+
+## Vacuum Cleaner
+
+supurge3 = data_supurge[,-(2:3)]
+supurge3$w_day = as.factor(supurge3$w_day)
+lm_supurge = lm(sold_count~. , supurge3)
+summary(lm_supurge)
+regressor_supurge = cbind(data_supurge$basket_count,data_supurge$category_favored,data_supurge$category_sold,data_supurge$category_visits)
+
+# basket_count category_sold category_visits category_favored
+
+forecast_ahead=1
+
+results=vector('list',length(test_dates))
+i=1
+for(i in 1:length(test_dates)){
+    current_date=test_dates[i]-forecast_ahead
+    
+    past_data=data_supurge[event_date<=current_date]
+    forecast_data=data_supurge[event_date==test_dates[i]]
+    
+    # first lm models
+    fmla='sold_count~basket_count+category_sold+category_visits+category_favored'
+    forecasted=forecast_with_lr(fmla,past_data,forecast_data)
+    forecast_data[,lm_prediction:=forecasted$forecast]
+    
+    # arima model with auto.arima
+    arima_forecast=forecast_with_arima(past_data,forecast_ahead,'sold_count','input_series=data_supurge$%s')
+    forecast_data[,arima_prediction:=arima_forecast$forecast]
+    
+    #arimax model
+    supurge_arimax = auto.arima(data_supurge$sold_count, xreg = regressor_supurge)
+    forecasted=round(forecast(supurge_arimax, xreg = tail(regressor_supurge,1), h = 1 )$mean)
+    forecast_data[,arimax:=as.numeric(forecasted)]
+    
+    results[[i]]=forecast_data
+}
+
+overall_results=rbindlist(results)
+melted_result=melt(overall_results,c('event_date','sold_count'),c('lm_prediction','arima_prediction','arimax'))
+performance=melted_result[,accu(sold_count,value),by=list(variable)]
+
+
+performance=melted_result[,accu(sold_count,value),by=list(event_date,variable)]
+performance[,day_of_week:=wday(event_date,label=T)]
+
+#performance
+ggplot(performance, aes(x=day_of_week, y=MAPE,fill=variable)) + 
+    geom_boxplot() + ylim(0,1)
+
+ggplot(performance, aes(x=day_of_week, y=FBias,fill=variable)) + 
+    geom_boxplot() + ylim(-1,1)
+
+## Facial Cleanser
+
+yuztem3 = data_yuztem[,-(2:3)]
+yuztem3$w_day = as.factor(yuztem3$w_day)
+lm_yuztem = lm(sold_count~. , yuztem3)
+summary(lm_yuztem)
+# basket_count category_sold category_visits
+regressor_yuztem= cbind(data_yuztem$basket_count,data_yuztem$category_visits,data_yuztem$category_sold)
+forecast_ahead=1
+
+results=vector('list',length(test_dates))
+i=1
+for(i in 1:length(test_dates)){
+    current_date=test_dates[i]-forecast_ahead
+    
+    past_data=data_yuztem[event_date<=current_date]
+    forecast_data=data_yuztem[event_date==test_dates[i]]
+    
+    # first lm models
+    fmla='sold_count~basket_count+category_sold+category_visits'
+    forecasted=forecast_with_lr(fmla,past_data,forecast_data)
+    forecast_data[,lm_prediction:=forecasted$forecast]
+    
+    # arima model with auto.arima
+    arima_forecast=forecast_with_arima(past_data,forecast_ahead,'sold_count','input_series=data_yuztem$%s')
+    forecast_data[,arima_prediction:=arima_forecast$forecast]
+    
+    #arimax model
+    yuztem_arimax = auto.arima(data_yuztem$sold_count, xreg = regressor_yuztem)
+    forecasted=round(forecast(yuztem_arimax, xreg = tail(regressor_yuztem,1), h = 1 )$mean)
+    forecast_data[,arimax:=as.numeric(forecasted)]
+    
+    results[[i]]=forecast_data
+}
+
+overall_results=rbindlist(results)
+melted_result=melt(overall_results,c('event_date','sold_count'),c('lm_prediction','arima_prediction','arimax'))
+performance=melted_result[,accu(sold_count,value),by=list(variable)]
+
+performance=melted_result[,accu(sold_count,value),by=list(event_date,variable)]
+performance[,day_of_week:=wday(event_date,label=T)]
+
+#performance
+ggplot(performance, aes(x=day_of_week, y=MAPE,fill=variable)) + 
+    geom_boxplot() + ylim(0,1)
+
+ggplot(performance, aes(x=day_of_week, y=FBias,fill=variable)) + 
+    geom_boxplot() + ylim(-1,1)
+
+## Tooth Brush
+
+oralb3 = data_oralb[,-(2:3)]
+oralb3$w_day = as.factor(oralb3$w_day)
+lm_oralb = lm(sold_count~. , oralb3)
+summary(lm_oralb)
+# basket_count category_sold favored_count
+regressor_oralb = cbind(data_oralb$basket_count,data_oralb$category_sold,data_oralb$favored_count)
+forecast_ahead=1
+
+results=vector('list',length(test_dates))
+i=1
+for(i in 1:length(test_dates)){
+    current_date=test_dates[i]-forecast_ahead
+    
+    past_data=data_oralb[event_date<=current_date]
+    forecast_data=data_oralb[event_date==test_dates[i]]
+    
+    # first lm models
+    fmla='sold_count~favored_count+basket_count+category_sold'
+    forecasted=forecast_with_lr(fmla,past_data,forecast_data)
+    forecast_data[,lm_prediction:=forecasted$forecast]
+    
+    # arima model with auto.arima
+    arima_forecast=forecast_with_arima(past_data,forecast_ahead,'sold_count','input_series=data_oralb$%s')
+    forecast_data[,arima_prediction:=arima_forecast$forecast]
+    
+    #arimax model
+    oralb_arimax = auto.arima(data_oralb$sold_count, xreg = regressor_oralb)
+    forecasted=round(forecast(oralb_arimax, xreg = tail(regressor_oralb,1), h = 1 )$mean)
+    forecast_data[,arimax:=as.numeric(forecasted)]
+    
+    results[[i]]=forecast_data
+}
+
+overall_results=rbindlist(results)
+melted_result=melt(overall_results,c('event_date','sold_count'),c('lm_prediction','arima_prediction','arimax'))
+performance=melted_result[,accu(sold_count,value),by=list(variable)]
+
+performance=melted_result[,accu(sold_count,value),by=list(event_date,variable)]
+performance[,day_of_week:=wday(event_date,label=T)]
+
+#performance
+ggplot(performance, aes(x=day_of_week, y=MAPE,fill=variable)) + 
+    geom_boxplot() + ylim(0,1)
+
+ggplot(performance, aes(x=day_of_week, y=FBias,fill=variable)) + 
+    geom_boxplot() + ylim(-1,1)
+
+
+### FORECAST
+
+#tayt forecast with arimax(0,1,0) 
+tayt_basketcount_model<-auto.arima(ts(data_tayt$basket_count))
+tayt_basketcount_forecast<-forecast(tayt_basketcount_model,h=2)
+
+tayt_category_favored_model<-auto.arima(ts(data_tayt$category_favored))
+tayt_category_favored_forecast<-forecast(tayt_category_favored_model,h=2)
+
+tayt_category_visits_model<-auto.arima(ts(data_tayt$category_visits))
+tayt_category_visits_forecast<-forecast(tayt_category_visits_model,h=2)
+
+tayt_category_sold_model<-auto.arima(ts(data_tayt$category_sold))
+tayt_category_sold_forecast<-forecast(tayt_category_sold_model,h=2)
+
+taytsubmission_xreg<-matrix(c(tayt_basketcount_forecast$mean,tayt_category_favored_forecast$mean,tayt_category_visits_forecast$mean,tayt_category_sold_forecast$mean),ncol=4)
+
+ts_tayt = ts(data_tayt$sold_count , frequency = 7)
+tayt_arimax = Arima(ts_tayt , order = c(0,1,0),xreg = regressor_tayt)
+tayt_arimax_pred = forecast(tayt_arimax, xreg=taytsubmission_xreg ,h=2)$mean[2]
+predictions[product_content_id=="31515569", forecast := round(tayt_arimax_pred,0)]
+
+#supurge forecast with arimax(1,0,3)
+supurge_basketcount_model<-auto.arima(ts(data_supurge$basket_count))
+supurge_basketcount_forecast<-forecast(supurge_basketcount_model,h=2)
+
+supurge_category_favored_model<-auto.arima(ts(data_supurge$category_favored))
+supurge_category_favored_forecast<-forecast(supurge_category_favored_model,h=2)
+
+supurge_category_sold_model<-auto.arima(ts(data_supurge$category_sold))
+supurge_category_sold_forecast<-forecast(supurge_category_sold_model,h=2)
+
+supurge_category_visits_model<-auto.arima(ts(data_supurge$category_visits))
+supurge_category_visits_forecast<-forecast(supurge_category_visits_model,h=2)
+
+
+supurgesubmission_xreg<-matrix(c(supurge_basketcount_forecast$mean,supurge_category_favored_forecast$mean,supurge_category_sold_forecast$mean,supurge_category_visits_forecast$mean),ncol=4)
+
+ts_supurge = ts(data_supurge$sold_count , frequency = 7)
+supurge_arimax = Arima(ts_supurge , order = c(1,0,3),xreg=regressor_supurge)
+supurge_arimax_pred = forecast(supurge_arimax,xreg=supurgesubmission_xreg, h=2)$mean[2]
+predictions[product_content_id=="7061886", forecast := round(supurge_arimax_pred,0)]
+
+
+#bikini1 forecast with linear reg
+bikini1_lm =lm(sold_count~basket_count+category_sold,bikini13)
+bikini1_pred = forecast(bikini1_lm,newdata = tail(bikini13,2) ,h=2)$mean[2]
+predictions[product_content_id=="73318567", forecast := round(bikini1_pred,0)]
+
+#bikini 2 forecast with linear reg
+bikini2_lm =lm(sold_count~basket_count+category_sold+category_favored,bikini23)
+bikini2_pred = forecast(bikini2_lm, newdata = tail(bikini23,2),h=2)$mean[2]
+predictions[product_content_id=="32737302", forecast := round(bikini2_pred,0)]
+
+#oralb forecast with linear reg
+oralb_lm =lm(sold_count~favored_count+basket_count+category_sold,oralb3)
+oralb_pred = forecast(oralb_lm, newdata = tail(oralb3,2),h=2)$mean[2]
+predictions[product_content_id=="32939029", forecast := round(oralb_pred,0)]
+
+#mont forecast with arima(3,0,2)
+ts_mont = ts(data_mont$sold_count , frequency = 7)
+mont_arima = arima(ts_mont , order = c(3,0,2))
+mont_arima_pred = forecast(mont_arima,h=2)$mean[2]
+predictions[product_content_id=="48740784", forecast := round(mont_arima_pred,0)]
+
+#kulaklık forecast with arima(3,0,2)
+ts_kulaklik = ts(data_kulaklik$sold_count , frequency = 7)
+kulaklik_arima = arima(ts_kulaklik , order = c(3,0,2))
+kulaklik_arima_pred = forecast(kulaklik_arima,h=2)$mean[2]
+predictions[product_content_id=="6676673", forecast := round(kulaklik_arima_pred,0)]
+
+#mendil forecast with arima(2,0,1)
+ts_mendil = ts(data_mendil$sold_count , frequency = 7)
+mendil_arima = arima(ts_mendil , order = c(2,0,1))
+mendil_arima_pred = forecast(mendil_arima,h=2)$mean[2]
+predictions[product_content_id=="4066298", forecast := round(mendil_arima_pred,0)]
+
+#yuz temizleyici forecast with arima(0,1,5)
+ts_yuztem = ts(data_yuztem$sold_count , frequency = 7)
+yuztem_arima = arima(ts_yuztem , order = c(0,1,5))
+yuztem_arima_pred = forecast(yuztem_arima,h=2)$mean[2]
+predictions[product_content_id=="85004", forecast := round(yuztem_arima_pred,0)]
+
+predictions
+
+```
+
+
