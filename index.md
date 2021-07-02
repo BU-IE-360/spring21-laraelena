@@ -9,4 +9,4 @@
 [Here](Files/HW3/HW3.html) is the Homework 3 file.
 
 ## Project
-[Here] (Files/Project/Group 7 Project-Report.html) is the Project file.
+[Here](Files/Project/Group 7 Project-Report.html) is the Project file.
