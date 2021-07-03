@@ -1,0 +1,1387 @@
+---
+title: "HW 4-5"
+author: "Group 7: Lara Elena Abdünnur, Emirhan Esen, Alp Çıtıroğlu"
+date: "7/1/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(urca)
+library(ggplot2)
+library(stats)
+library(lubridate)
+library(zoo)
+library(forecast)
+library(dplyr)
+library(data.table)
+
+data<-fread("project.csv")
+str(data)
+data[, product_content_id := as.character(product_content_id)]
+data[, event_date := as.Date(event_date , format("%d.%m.%Y"))]
+data[,w_day:=as.character(lubridate::wday(event_date,label=T))]
+data[,month:=as.character(lubridate::month(event_date,label=T))]
+data[, price := as.numeric(gsub(",", ".", price))]
+str(data)
+
+data_mont <- data[product_content_id==48740784]
+data_bikini1 <- data[product_content_id==73318567]
+data_bikini2 <- data[product_content_id==32737302]
+data_tayt <- data[product_content_id==31515569]
+data_kulaklik <- data[product_content_id==6676673]
+data_supurge <- data[product_content_id==7061886]
+data_yuztem <- data[product_content_id==85004]
+data_oralb <- data[product_content_id==32939029]
+data_mendil <- data[product_content_id==4066298]
+
+#reporting accuracy
+accu=function(actual,forecast){
+  n=length(actual)
+  error=actual-forecast
+  mean=mean(actual)
+  sd=sd(actual)
+  CV=sd/mean
+  FBias=sum(error)/sum(actual)
+  MAPE=sum(abs(error/actual))/n
+  RMSE=sqrt(sum(error^2)/n)
+  MAD=sum(abs(error))/n
+  MADP=sum(abs(error))/sum(abs(actual))
+  WMAPE=MAD/mean
+  l=data.table(n,mean,sd,CV,FBias,MAPE,RMSE,MAD,MADP,WMAPE)
+  return(l)
+}
+```
+
+## 1. Introduction
+
+The aim of this project is to build a forcecasting model for the sale quantities of 9 different products of an online retailer, Trendyol. Each model is built by following certain steps. First, the  seasonality of the sales are analyzed by decomposing the data on different levels. Second step is to fit an ARIMA model based on the findings. Third step is to analyze the possible regressors. Fourth and the final step is to build an ARIMAX model and compare the performance measures of the ARIMA and ARIMAX models on a test period of one week. 
+
+Before starting modeling, required data manipulations are done on the data set.Also, weekday and month info are added to the data set, since they may help on explaining the volume of sales.  
+
+## Models 
+
+## 2. Model of Bavy Wipes Sales  
+
+# 2.1 Visualisation of the Data 
+
+The sales of baby wipes are experiencing peaks nearly every month. This may due to some monthly promotions.The highest peak is observed during Black Friday. There seems to be an increasing trend in sales ans sales are generally higher during fall.  
+
+```{r , echo=FALSE}
+ggplot(data[product_content_id==4066298],aes(x=event_date,y=sold_count))+geom_line()+labs(y="Number of Units Sold",x="Time",title = "Sales of Baby Wipes")
+
+```
+
+
+
+```{r , echo=FALSE}
+summary(ur.kpss(data_mendil$sold_count)) 
+
+```
+The KPSS test statistic shows that the series is already stationary. 
+
+# 2.2 Decomposition 
+
+# 2.2.a Daily Decompostion (Frequency=7)
+There is no changing variance so we can use additive decompositon.
+
+```{r , echo=FALSE}
+ts_mendil<- ts(data_mendil$sold_count,frequency=7)
+decomposed_mendil<- decompose(ts_mendil,type="additive")
+plot(decomposed_mendil)
+summary(ur.kpss(decomposed_mendil$random)) 
+```
+The random component is satisfying the zero mean assumption. Also the variance seems to be constant, however the outlier point during the Black Friday is detoriating this assumption.Kpss test shows that we achieved stationarity The seasonal component shows that the sales increase towards the middle of the week. There is no particular pattern on the trend component, but roughly it seems to be following a wave pattern. 
+
+# 2.2.b Decomposition at frequency=30
+
+```{r , echo=FALSE}
+ts_mendil2<- ts(data_mendil$sold_count,frequency=30)
+decomposed_mendil2<- decompose(ts_mendil2,type="additive")
+plot(decomposed_mendil2)
+summary(ur.kpss(decomposed_mendil2$random)) 
+```
+The random component is not satisfying the zero mean assumption and due to outlier points constant variance assumption doesn't stictly satisfied. But, the kpss test shows that we achieved stationarity. The seasonal component shows that there is a peak happening towards the end of the 30 day period.The trend component doesn't show a particular pattern. 
+
+We will continue with daily decomposition due to the better distribution of random component. 
+
+
+# 2.3 ARIMA Model
+
+The sinusoidal pattern in the ACF plot shows that we can add an AR parameter. When we look at the PACF plot, we observe that significance of partial auto correlation is decreasing after lag 3. So, p=3 can be used.
+
+There is a sinusoidal pattern in the PACF plot as well. After checking the ACF plot we can say that q=1 and q=4 are possible options. 
+
+
+```{r , echo=FALSE}
+acf(decomposed_mendil$random,na.action=na.pass)
+pacf(decomposed_mendil$random,na.action=na.pass)
+```
+
+
+```{r , echo=FALSE}
+mendil_model1 = arima(decomposed_mendil$random, order = c(3,0,1))
+AIC1=AIC(mendil_model1)
+
+mendil_model2 = arima(decomposed_mendil$random, order = c(3,0,4))
+AIC2=AIC(mendil_model2)
+
+rbind(c("model 1", "model 2"),c(AIC1,AIC2))
+```
+
+The models provided a high AIC values. Model 2 is better than model 1 due to its lower AIC. 
+
+# 2.4 Regressor Analysis
+
+```{r , echo=FALSE}
+data_mendil[ , w_day := as.factor(w_day)]
+data_mendil[ , month := as.factor(month)]
+data_mendil = data_mendil[ , -3]
+lm_mendil = lm(sold_count ~ . , data_mendil)
+summary(lm_mendil)
+```
+
+Due to their high significance candidate regressors are; basket_count, category_sold, category_visits and category_favored. 
+
+```{r , echo=FALSE}
+par(mfrow=c(2,2))
+plot(decomposed_mendil$random,data_mendil$category_favored,main="Category_favored")
+plot(decomposed_mendil$random,data_mendil$basket_count,main="Basket_count")
+plot(decomposed_mendil$random,data_mendil$category_sold,main="Category_sold")
+plot(decomposed_mendil$random,data_mendil$visit_count,main="Visit_count")
+```
+We decided on using basket_count and category_favored after the visual inspection.
+
+# 2.5 ARIMAX Model
+Now we will add the regression matrix to our models and observe if there is any improvement. 
+
+```{r , echo=FALSE}
+regressor_mendil = cbind(data_mendil$basket_count,data_mendil$category_favored)
+mendil_arimax1=Arima(decomposed_mendil$random, order = c(3,0,1), xreg = regressor_mendil)
+AIC1=AIC(mendil_arimax1)
+
+mendil_arimax2=Arima(decomposed_mendil$random, order = c(3,0,4), xreg = regressor_mendil)
+AIC2=AIC(mendil_arimax2)
+
+mendil_arimax3=auto.arima(decomposed_mendil$random, xreg = regressor_mendil)
+AIC3=AIC(mendil_arimax3)
+
+rbind(c("model 1", "model 2","auto.arima"),c(AIC1,AIC2,AIC3))
+```
+The models are slightly improved and the auto.arima function provided a better result. The model found by auto.arima function have (1,1,1) as parameter values. 
+
+# 2.6 Performance of the Models
+
+```{r , echo=FALSE}
+mendil_fitted1=fitted(mendil_arimax1)
+mendil_fitted1_transformed=mendil_fitted1+decomposed_mendil$seasonal+decomposed_mendil$trend
+actual_mendil0 = as.numeric(ts_mendil[333:339])
+fitted_mendil0 = as.numeric(mendil_fitted1_transformed[333:339])
+perf1 = accu(actual_mendil0,fitted_mendil0)
+perf1
+
+mendil_fitted2=fitted(mendil_arimax2)
+mendil_fitted2_transformed=mendil_fitted2+decomposed_mendil$seasonal+decomposed_mendil$trend
+actual_mendil = as.numeric(ts_mendil[333:339])
+fitted_mendil = as.numeric(mendil_fitted2_transformed[333:339])
+perf2 = accu(actual_mendil,fitted_mendil)
+perf2
+
+mendil_fitted3=fitted(mendil_arimax3)
+mendil_fitted3_transformed=mendil_fitted3+decomposed_mendil$seasonal+decomposed_mendil$trend
+actual_mendil3 = as.numeric(ts_mendil[330:336])
+fitted_mendil3 = as.numeric(mendil_fitted3_transformed[330:336])
+perf3 = accu(actual_mendil3,fitted_mendil3)
+perf3
+```
+
+The model 2 ,which have parameters (3,0,4), seems to be a better model due to its lower RMSE and MAPE value.
+
+
+
+
+## 3. Model of Tight Sales  
+
+# 3.1 Visualisation of the Data 
+
+Sales of tights doesn't seem to have any seasonal pattern. Probably the small peaks in the sales are during promotion times. Again we are observing a very high peak during the Black Friday, which can be categorized as an outlier point. 
+
+```{r , echo=FALSE}
+ggplot(data[product_content_id==31515569],aes(x=event_date,y=sold_count))+geom_line()+labs(y="Number of Units Sold",x="Time",title = "Sales of the Tight")
+```
+The KPSS test shows that the series is not stationary 
+```{r , echo=FALSE}
+summary(ur.kpss(data_tayt$sold_count)) 
+```
+
+# 3.2 Decomposition 
+The sales data is available for only 13 months. That's why the number of periods is not sufficient to obtain  weekly and monthly seasonality by using decompose() function. So, the decompose function is only working on the daily level. So, we decided to try decompose with different frequency values, which are 7 and 30.
+
+# 3.2.a Daily Decompostion (Frequency=7)
+
+Multiplicative decomposition is a better option due to the increasing variance, especially during the fall.   
+
+```{r , echo=FALSE}
+ts_tayt=ts(data_tayt$sold_count,frequency=7)
+decomposed_tayt<-decompose(ts_tayt,type="multiplicative")
+plot(decomposed_tayt)
+summary(ur.kpss(decomposed_tayt$random)) 
+```
+We can see that we achieved stationarity depending on the KPSS test. Also the random component is following the mean zero and constant variance assumptions. The seasonal component shows that the sales tend to increase towards the middle of the weak, and decrease towards the end of the week. There is no specific trend, but we can observe the effect of Black Friday on the trend component. 
+
+We can continue with daily decomposition since random component satisfies the assumptions and stationarity is achieved. 
+
+
+# 3.2.Decompostion with frequency=30
+
+```{r , echo=FALSE}
+ts_tayt2=ts(data_tayt$sold_count,frequency=30)
+decomposed_tayt2<-decompose(ts_tayt2,type="multiplicative")
+plot(decomposed_tayt2)
+summary(ur.kpss(decomposed_tayt2$random)) 
+```
+The KPSS test shows that we achieved stationarity, and the random component is following the constant variance assumption, however the it is not following the zero mean assumption. The trend component shows the increase in sales during the fall.The seasonality component shows that in every 30-day period the sales tend to increase towards the end of that period. 
+
+Since the daily decomposition is providing a better random component we will continue with it. 
+
+# 3.3 ARIMA Model
+
+First we need to check ACF and PACF to decide on which parameter to use. 
+
+```{r , echo=FALSE}
+acf(decomposed_tayt$random,na.action=na.pass)
+pacf(decomposed_tayt$random,na.action=na.pass)
+```
+We can add AR parameter, since ACF plot is following a sinusoidal pattern. After lag 2 signifigance of partial autocorrelation is decreasing so p=2 can be considered. 
+
+We can add MA parameter as well, since PACF plot is following a sinusoidal pattern. Depending on the ACF plot, we can try several values as MA parameter such as q=1 and q=2. 
+
+```{r , echo=FALSE}
+tayt_model1 = arima(decomposed_tayt$random, order = c(2,0,1))
+AIC1=AIC(tayt_model1)
+
+tayt_model2 = arima(decomposed_tayt$random, order = c(2,0,2))
+AIC2=AIC(tayt_model2)
+
+rbind(c("model 1", "model 2"),c(AIC1,AIC2))
+```
+We tried the models with parameters (2,0,1) and (2,0,2). Model 1 provided a better result with a lower AIC. 
+
+# 3.4 Regressor Analysis
+
+In order to find the significance of the input attributes on explaining the sold_count, we built a linear regression model.Then we plotted the ones with high significance values with the random component. We chose the ones that would work well on explaining the behavior of the random component. Note that this method is going to be used for every product. 
+
+```{r , echo=FALSE}
+data_tayt[ , w_day := as.factor(w_day)]
+data_tayt[ , month := as.factor(month)]
+data_tayt = data_tayt[ , -3]
+lm_tayt = lm(sold_count ~ . , data_tayt)
+summary(lm_tayt)
+```
+
+
+The most significant input attributes can be seen as visit_count,basket_count,category_sold,category_visits and category_favored. Since visit_count and category_visits are correlated using only one of them would be a better option.
+
+
+```{r , echo=FALSE}
+par(mfrow=c(2,2))
+plot(decomposed_tayt$random,data_tayt$category_favored,main="Category_favored")
+plot(decomposed_tayt$random,data_tayt$basket_count,main="Basket_count")
+plot(decomposed_tayt$random,data_tayt$category_sold,main="Category_sold")
+plot(decomposed_tayt$random,data_tayt$visit_count,main="Visit_count")
+
+```
+We chose to use category_favored and basket_count as regressors since they have provide a better distribution with the random component, which is close to the x=y line.  
+
+# 3.5 ARIMAX Model
+
+Now, we are going to add the regression matrix to the ARIMA models that we found before, and see if there is any improvement. 
+
+```{r , echo=FALSE}
+regressor_tayt = cbind(data_tayt$basket_count,data_tayt$category_favored)
+tayt_arimax1=Arima(decomposed_tayt$random, order = c(2,0,1), xreg = regressor_tayt)
+AIC1=AIC(tayt_arimax1)
+
+tayt_arimax2=Arima(decomposed_tayt$random, order = c(2,0,2), xreg = regressor_tayt)
+AIC2=AIC(tayt_arimax2)
+
+tayt_arimax3=auto.arima(decomposed_tayt$random, xreg = regressor_tayt)
+AIC3=AIC(tayt_arimax3)
+
+rbind(c("model 1", "model 2","auto.arima"),c(AIC1,AIC2,AIC3))
+
+```
+
+As we can see both of the models are improved with lower AIC values. Still model 1 is providing a better result. Auto.arima function didn't provide a better result.
+
+# 3.6 Performance of the Models
+Now we will evaluate the models over a one week test period. 
+
+```{r , echo=FALSE}
+tayt_fitted1=fitted(tayt_arimax1)
+tayt_fitted1_transformed=tayt_fitted1*decomposed_tayt$seasonal*decomposed_tayt$trend
+actual_tayt0 = as.numeric(ts_tayt[333:339])
+fitted_tayt0 = as.numeric(tayt_fitted1_transformed[333:339])
+perf1 = accu(actual_tayt0,fitted_tayt0)
+perf1
+
+tayt_fitted2=fitted(tayt_arimax2)
+tayt_fitted2_transformed=tayt_fitted2*decomposed_tayt$seasonal*decomposed_tayt$trend
+actual_tayt = as.numeric(ts_tayt[333:339])
+fitted_tayt = as.numeric(tayt_fitted2_transformed[333:339])
+perf2 = accu(actual_tayt,fitted_tayt)
+perf2
+
+tayt_fitted3=fitted(tayt_arimax3)
+tayt_fitted3_transformed=tayt_fitted3*decomposed_tayt$seasonal*decomposed_tayt$trend
+actual_tayt3 = as.numeric(ts_tayt[330:336])
+fitted_tayt3 = as.numeric(tayt_fitted3_transformed[330:336])
+perf3 = accu(actual_tayt3,fitted_tayt3)
+perf3
+```
+
+The model 3 ,which have parameters (0,1,1), seems to be a better model due to its lower RMSE and MAPE value.
+
+```{r , echo=FALSE}
+
+
+```
+
+
+```{r , echo=FALSE}
+
+```
+
+
+## 4. Model of Bikini Top 1  Sales  
+
+# 4.1 Visualisation of the Data 
+The plot shows that the bikini top 1 didn't have any sales till February 2021. This might due to a mistake in the data or the sale of the product haven't started till that date. The sales have very high peaks in March and May and the rest of the months the sales approach to zero. 
+
+```{r , echo=FALSE}
+ggplot(data[product_content_id==73318567],aes(x=event_date,y=sold_count))+geom_line()+labs(y="Number of Units Sold",x="Time",title = "Sales of the Bikini Top 1")
+
+```
+```{r , echo=FALSE}
+summary(ur.kpss(data_bikini1$sold_count)) 
+```
+The KPSS test shows that the series is stationary
+
+# 4.2 Decomposition 
+
+# 4.2.a Daily Decompostion (Frequency=7)
+Additive decopmposition is a better option since variance is not increasing.  
+
+```{r , echo=FALSE}
+ts_bikini1 <- ts(data_bikini1$sold_count,frequency=7)
+decomposed_bikini1<- decompose(ts_bikini1,type="additive")
+plot(decomposed_bikini1)
+summary(ur.kpss(decomposed_bikini1$random)) 
+```
+The random component is satisfying the zero mean assumption. The variance is nearly constant but some outlier points are creating small jumps on the data. The trend component is showing the increasing sales during the March and for the rest of the months it's zero. The seasonality component shows that there is an increase in sales towards the beginning of the week. The kpss test shows that we achieved stationarity. 
+
+
+# 4.2.b Decompostion at Frequency=30
+```{r , echo=FALSE}
+ts_bikini12 <- ts(data_bikini1$sold_count,frequency=30)
+decomposed_bikini12<- decompose(ts_bikini12,type="additive")
+plot(decomposed_bikini12)
+summary(ur.kpss(decomposed_bikini12$random)) 
+```
+Due to the outlier points the random component has a high peak which deteriorates the constant variance assumption. We can say that it's satisfying the zero mean assumption. Also the kpss test shows that it is stationary. Seasonality component shows that sales tend to increase towards the end of the 30 day period. Trend component is showing the increase during the March and May and it's zero in the rest of the months. 
+
+Daily decomposition is providing a better result, so we will continue with it. 
+
+
+
+# 4.3 ARIMA Model
+ACF plot has a sinusoidal pattern and significance of PACF is decreasing after lag 3 that's why p=3 is a possible option. 
+PACF plot is also showing a sinusoidal pattern and depending on the ACF plot we can try q=4 and q=1. 
+
+```{r , echo=FALSE}
+acf(decomposed_bikini1$random,na.action=na.pass)
+pacf(decomposed_bikini1$random,na.action=na.pass)
+```
+
+
+```{r , echo=FALSE}
+bikini1_model1 = arima(decomposed_bikini1$random, order = c(3,0,4))
+AIC1=AIC(bikini1_model1)
+
+bikini1_model2 = arima(decomposed_bikini1$random, order = c(3,0,1))
+AIC2=AIC(bikini1_model2)
+
+rbind(c("model 1", "model 2"),c(AIC1,AIC2))
+```
+
+The model 1 ,which have parameters (3,0,4), seems to be a better model due to its lower AIC value. 
+
+
+# 4.4 Regressor Analysis
+
+
+```{r , echo=FALSE}
+data_bikini1[ , w_day := as.factor(w_day)]
+data_bikini1[ , month := as.factor(month)]
+data_bikini1 = data_bikini1[ , -3]
+lm_bikini1 = lm(sold_count ~ . , data_bikini1)
+summary(lm_bikini1)
+```
+
+
+The most significant input attributes can be seen as visit_count,basket_count and favored_count.Now we will plot these attributes with random component to visualize their relation. 
+
+
+```{r , echo=FALSE}
+par(mfrow=c(2,2))
+plot(decomposed_bikini1$random,data_bikini1$favored_count,main="Favored_Count")
+plot(decomposed_bikini1$random,data_bikini1$basket_count,main="Basket_count")
+plot(decomposed_bikini1$random,data_bikini1$visit_count,main="Visit_count")
+```
+The attributes are not really distributed along the x=y line, however basket_count is providing a better result and it can be used as a regressor. 
+
+# 4.5 ARIMAX Model
+
+```{r , echo=FALSE}
+regressor_bikini1 = data_bikini1$basket_count
+bikini1_arimax1=Arima(decomposed_bikini1$random, order = c(3,0,1), xreg = regressor_bikini1)
+AIC1=AIC(bikini1_arimax1)
+
+bikini1_arimax2=Arima(decomposed_bikini1$random, order = c(3,0,4), xreg = regressor_bikini1)
+AIC2=AIC(bikini1_arimax2)
+
+bikini1_arimax3=auto.arima(decomposed_bikini1$random, xreg = regressor_bikini1)
+AIC3=AIC(bikini1_arimax3)
+
+rbind(c("model 1", "model 2","auto.arima"),c(AIC1,AIC2,AIC3))
+```
+We can see that the models are improved as they have lower AIC values. Auto.arima function found a SARIMAX  model with parameters (5,1,1)(2,0,0)[7]. This resulted in a much better model compoared to others. 
+
+
+# 4.6 Performance of the Models
+Now we will evaluate the models over a one week test period. 
+```{r , echo=FALSE}
+bikini1_fitted1=fitted(bikini1_arimax1)
+bikini_fitted1_transformed=bikini1_fitted1+decomposed_bikini1$seasonal+decomposed_bikini1$trend
+actual_bikini10 = as.numeric(ts_bikini12[333:339])
+fitted_bikini10 = as.numeric(bikini_fitted1_transformed[333:339])
+perf1 = accu(actual_bikini10,fitted_bikini10)
+perf1
+
+bikini1_fitted2=fitted(bikini1_arimax2)
+bikini_fitted2_transformed=bikini1_fitted2+decomposed_bikini1$seasonal+decomposed_bikini1$trend
+actual_bikini11 = as.numeric(ts_bikini12[333:339])
+fitted_bikini11 = as.numeric(bikini_fitted2_transformed[333:339])
+perf2 = accu(actual_bikini11,fitted_bikini11)
+perf2
+
+bikini1_fitted3=fitted(bikini1_arimax3)
+bikini_fitted2_transformed=bikini1_fitted3+decomposed_bikini1$seasonal+decomposed_bikini1$trend
+actual_bikini12 = as.numeric(ts_bikini12[330:336])
+fitted_bikini12 = as.numeric(bikini_fitted2_transformed[330:336])
+perf3 = accu(actual_bikini12,fitted_bikini12)
+perf3
+```
+
+The model 2 ,which have parameters (3,0,4), seems to be a better model due to its lower RMSE and MAD value. Since the forecasts are equal to 0, we get NA's in some of the performance measured.
+
+
+```{r , echo=FALSE}
+
+```
+
+## 5. Model of Bikini Top 2 Sales  
+
+# 5.1 Visualisation of the Data 
+The plot shows that the bikini sales start to increase starting from spring time and decrease towards the fall. During fall and winter there are approximately no sales.  
+
+```{r , echo=FALSE}
+ggplot(data[product_content_id==32737302],aes(x=event_date,y=sold_count))+geom_line()+labs(y="Number of Units Sold",x="Time",title = "Sales of the Bikini Top 2")
+
+```
+```{r , echo=FALSE}
+summary(ur.kpss(data_bikini2$sold_count)) 
+```
+The KPSS test shows the series is not stationarity.
+
+# 5.2 Decomposition 
+
+# 5.2.a Daily Decompostion
+
+Additive decomposition is a better option since there are many zeros in the data multiplicative decomposition won't provide a great result. 
+
+```{r , echo=FALSE}
+ts_bikini2 <- ts(data_bikini2$sold_count,frequency=7)
+decomposed_bikini2<- decompose(ts_bikini2,type="additive")
+plot(decomposed_bikini2)
+summary(ur.kpss(decomposed_bikini2$random)) 
+```
+The random component is satisfing the zero mean assumption but failing to satisfy the constant variance assumption since the distribution of sales are nearly zero during the fall and winter and very high during the spring and summer. Also the trend is explaining this behavior. Seasonal component shows that the sales increase towards the middle of the weak.  The kpss test shows that we achieved stationarity
+
+# 5.2.b Decompostion at Frequency=30
+
+```{r , echo=FALSE}
+ts_bikini22 <- ts(data_bikini2$sold_count,frequency=30)
+decomposed_bikini22<- decompose(ts_bikini22,type="additive")
+plot(decomposed_bikini22)
+summary(ur.kpss(decomposed_bikini22$random)) 
+```
+
+Due to the some outlier points the constant variance assumption is failed and zero mean assumption is not really satisfied, however kpss test shows that we achieved stationarity. The seasonal component shows that over a 30 day period, the sales are increasing in the beginning and reached to a peak in the middle. The trend is showing the increase in the spring and summer time.
+
+We will continue with daily decomposition since the random component is satisfying the assumptions better than the decomposition with frequency=30. 
+
+# 5.3 ARIMA Model
+The sinusoidal pattern of ACF plot shows that we can use an AR parameter and PACF plot shows that we can try p=1. 
+PACF plot also has a sinusoidal pattern, and depending on the ACF we can try q=3 and q=4.
+
+```{r , echo=FALSE}
+acf(decomposed_bikini2$random,na.action=na.pass)
+pacf(decomposed_bikini2$random,na.action=na.pass)
+```
+
+
+```{r , echo=FALSE}
+bikini2_model1 = arima(decomposed_bikini2$random, order = c(1,0,3))
+AIC1=AIC(bikini2_model1)
+
+bikini2_model2 = arima(decomposed_bikini2$random, order = c(1,0,4))
+AIC2=AIC(bikini2_model2)
+
+rbind(c("model 1", "model 2"),c(AIC1,AIC2))
+```
+
+Model 2, which has parameters (1,0,4) is better than model 1 due to its lower AIC value. 
+
+# 5.4 Regressor Analysis
+```{r , echo=FALSE}
+data_bikini2[ , w_day := as.factor(w_day)]
+data_bikini2[ , month := as.factor(month)]
+data_bikini2 = data_bikini2[ , -3]
+lm_bikini2 = lm(sold_count ~ . , data_bikini2)
+summary(lm_bikini2)
+```
+
+The most significant input attributes can be seen as category_visits,basket_count and category_favored.Now we will plot these attributes with random component to visualize their relation. 
+
+```{r , echo=FALSE}
+par(mfrow=c(2,2))
+plot(decomposed_bikini2$random,data_bikini2$category_visits,main="Category_visits")
+plot(decomposed_bikini2$random,data_bikini2$basket_count,main="Basket_count")
+plot(decomposed_bikini2$random,data_bikini2$category_favored,main="Category_favored")
+```
+After the visual inspection we decided that we will continue with only the basket count. 
+# 5.5 ARIMAX Model
+
+
+```{r , echo=FALSE}
+regressor_bikini2 = data_bikini2$basket_count
+
+bikini2_arimax1=Arima(decomposed_bikini2$random, order = c(1,0,3), xreg = regressor_bikini2)
+AIC1=AIC(bikini2_arimax1)
+
+bikini2_arimax2=Arima(decomposed_bikini2$random, order = c(1,0,4), xreg = regressor_bikini2)
+AIC2=AIC(bikini2_arimax2)
+
+bikini2_arimax3=auto.arima(decomposed_bikini2$random, xreg = regressor_bikini2)
+AIC3=AIC(bikini2_arimax3)
+
+rbind(c("model 1", "model 2","auto.arima"),c(AIC1,AIC2,AIC3))
+```
+We can see that the models are not improved as they don't have any change in the AIC values. Auto.arima function found a SARIMAX  model with parameters (3,1,4)(2,0,0)[7]. This model's AIC value is higher so it's not a better model. 
+
+# 5.6 Performance of the Models
+
+```{r , echo=FALSE}
+bikini2_fitted1=fitted(bikini2_arimax1)
+bikini2_fitted1_transformed=bikini2_fitted1+decomposed_bikini2$seasonal+decomposed_bikini2$trend
+actual_bikini20 = as.numeric(ts_bikini22[333:339])
+fitted_bikini20 = as.numeric(bikini2_fitted1_transformed[333:339])
+perf1 = accu(actual_bikini20,fitted_bikini20)
+perf1
+
+bikini2_fitted2=fitted(bikini2_arimax2)
+bikini2_fitted2_transformed=bikini2_fitted2+decomposed_bikini2$seasonal+decomposed_bikini2$trend
+actual_bikini21 = as.numeric(ts_bikini22[333:339])
+fitted_bikini21 = as.numeric(bikini2_fitted2_transformed[333:339])
+perf2 = accu(actual_bikini21,fitted_bikini21)
+perf2
+
+bikini2_fitted3=fitted(bikini2_arimax3)
+bikini2_fitted3_transformed=bikini2_fitted3+decomposed_bikini2$seasonal+decomposed_bikini2$trend
+actual_bikini22 = as.numeric(ts_bikini22[330:336])
+fitted_bikini22 = as.numeric(bikini2_fitted3_transformed[330:336])
+perf3 = accu(actual_bikini22,fitted_bikini22)
+perf3
+```
+
+The model 1 ,which have parameters (1,0,3), seems to be a better model due to its lower RMSE value.
+
+
+```{r , echo=FALSE}
+
+```
+
+
+## 6. Model of Tooth Brush Sales  
+
+# 6.1 Visualisation of the Data 
+We can say that toothbrush has a frequent demand.There is an increasing trend in the sales, and there are some peaks observed, which probably corresponds to promotion times. These peaks may result in outlier points.  
+
+```{r , echo=FALSE}
+ggplot(data[product_content_id==32939029],aes(x=event_date,y=sold_count))+geom_line()+labs(y="Number of Units Sold",x="Time",title = "Sales of Tooth Brush")
+```
+
+```{r , echo=FALSE}
+summary(ur.kpss(data_oralb$sold_count)) 
+
+```
+The high value of KPSS test shows that the series is not stationary. 
+
+# 6.2 Decomposition 
+
+# 6.2.a Daily Decompostion (Frequency=7)
+Additive decomposition is a better option since there is no increasing variance. 
+
+```{r , echo=FALSE}
+ts_oralb=ts(data_oralb$sold_count,frequency=7)
+decomposed_oralb<-decompose(ts_oralb,type="additive")
+plot(decomposed_oralb)
+summary(ur.kpss(decomposed_oralb$random)) 
+```
+The KPSS test shows that we achieved stationarity and the random component is satisfying all the assumptions. The seasonal component shows that the sales are increasing towards the middle of the week. The trend component shows the increasing trend towards the spring time and the increase in sales probably during the promotion times.
+
+
+# 6.2.b Decompostion at Frequency=30
+
+```{r , echo=FALSE}
+ts_oralb2=ts(data_oralb$sold_count,frequency=30)
+decomposed_oralb2<-decompose(ts_oralb2,type="multiplicative")
+plot(decomposed_oralb2)
+summary(ur.kpss(decomposed_oralb2$random)) 
+```
+The random component is not satisfing the zero mean assumption but the KPSS test shows that we achieved stationarity. The seasonal component shows taht over a 30 day period the sales tend to increase towards the end. Trend component shows the increase towards the spring.
+
+# 6.3 ARIMA Model
+We can try p=1 and p=2 since ACF has a sinusoidal pattern and PACF's significance is decreasing after lag1 and lag2. There is no need for MA parameter.
+
+```{r , echo=FALSE}
+acf(decomposed_oralb$random,na.action=na.pass)
+pacf(decomposed_oralb$random,na.action=na.pass)
+
+```
+
+```{r , echo=FALSE}
+oralb_model1 = arima(decomposed_oralb$random, order = c(1,0,0))
+AIC1=AIC(oralb_model1)
+
+oralb_model2 = arima(decomposed_oralb$random, order = c(2,0,0))
+AIC2=AIC(oralb_model2)
+
+oralb_model3=auto.arima(decomposed_oralb$random)
+
+rbind(c("model 1", "model 2"),c(AIC1,AIC2))
+```
+Model 2, which has parameters (2,0,0) is providing a better result sue to its lower AIC.
+
+# 6.4 Regressor Analysis
+
+```{r , echo=FALSE}
+data_oralb[ , w_day := as.factor(w_day)]
+data_oralb[ , month := as.factor(month)]
+data_oralb = data_oralb[ , -3]
+lm_oralb = lm(sold_count ~ . , data_oralb)
+summary(lm_oralb)
+```
+The most significant input attributes can be seen as visit_count, basket_count,category_basket and category_favored.Now we will plot these attributes with random component to visualize their relation. Basket_count and category_basket is correlated so we will choose only one of them. 
+
+
+```{r , echo=FALSE}
+par(mfrow=c(2,2))
+plot(decomposed_oralb$random,data_oralb$category_favored,main="Category_favored")
+plot(decomposed_oralb$random,data_oralb$basket_count,main="Basket_count")
+plot(decomposed_oralb$random,data_oralb$visit_count,main="Visit_count")
+```
+After the visual inspection we decided to go with basket_count and visit_count. 
+
+# 6.5 ARIMAX Model
+
+```{r , echo=FALSE}
+regressor_oralb = cbind(data_oralb$basket_count,data_oralb$visit_count)
+oralb_arimax1=Arima(decomposed_oralb$random, order = c(1,0,0), xreg = regressor_oralb)
+AIC1=AIC(oralb_arimax1)
+
+oralb_arimax2=Arima(decomposed_oralb$random, order = c(2,0,0), xreg = regressor_oralb)
+AIC2=AIC(oralb_arimax2)
+
+oralb_arimax3=auto.arima(decomposed_oralb$random, xreg = regressor_oralb)
+AIC3=AIC(oralb_arimax3)
+
+rbind(c("model 1", "model 2","auto.arima"),c(AIC1,AIC2,AIC3))
+```
+The models are improved since their AIC values are decreased. Auto.arima function provided a better result and with the (1,1,1)(0,0,1)[7] parameter values. 
+
+# 6.6 Performance of the Models
+
+```{r , echo=FALSE}
+oralb_fitted1=fitted(oralb_arimax1)
+oralb_fitted1_transformed=oralb_fitted1*decomposed_oralb$seasonal*decomposed_oralb$trend
+actual_oralb0 = as.numeric(ts_oralb[333:339])
+fitted_oralb0 = as.numeric(oralb_fitted1_transformed[333:339])
+perf1 = accu(actual_oralb0,fitted_oralb0)
+perf1
+
+oralb_fitted2=fitted(oralb_arimax2)
+oralb_fitted2_transformed=oralb_fitted2*decomposed_oralb$seasonal*decomposed_oralb$trend
+actual_oralb = as.numeric(ts_oralb[333:339])
+fitted_oralb = as.numeric(oralb_fitted2_transformed[333:339])
+perf2 = accu(actual_oralb,fitted_oralb)
+perf2
+
+oralb_fitted3=fitted(oralb_arimax3)
+oralb_fitted3_transformed=oralb_fitted3*decomposed_oralb$seasonal*decomposed_oralb$trend
+actual_oralb3 = as.numeric(ts_oralb[330:336])
+fitted_oralb3 = as.numeric(oralb_fitted3_transformed[330:336])
+perf3 = accu(actual_oralb3,fitted_oralb3)
+perf3
+```
+
+The model 1 ,which have parameters (2,0,2), seems to be a better model due to its lower RMSE and MAPE value.
+
+## 7. Model of Facial Cleanser Sales  
+
+# 7.1 Visualisation of the Data 
+
+We can observe that Facial Cleanser has a frequent demand. Similar to most of the products, during the fall the sales reached to a peak level due to the Black Friday promotions. Also, sales increased during the mid of February as well, which corresponds to Valentine's day. So we can say that the sales are easily affected by the promotions on the special days. We can say that there is an increasing trend too. 
+
+```{r , echo=FALSE}
+ggplot(data[product_content_id==85004],aes(x=event_date,y=sold_count))+geom_line()+labs(y="Number of Units Sold",x="Time",title = "Sales of the Facial Cleanser")
+
+```
+
+```{r , echo=FALSE}
+summary(ur.kpss(data_yuztem$sold_count)) 
+
+```
+
+The KPSS test shows that the data is not stationary, with its really high test static value. 
+
+# 7.2 Decomposition 
+
+# 7.2.a Daily Decompostion (Frequency=7)
+
+Multiplicative decomposition is preferred since there is an increasing variance. 
+
+```{r , echo=FALSE}
+ts_yuztem <- ts(data_yuztem$sold_count,frequency=7)
+decompose_yuztem<- decompose(ts_yuztem,type="multiplicative")
+plot(decompose_yuztem)
+summary(ur.kpss(decompose_yuztem$random)) 
+
+```
+The random component is following the zero mean and constant variance assumption. The stationarity achieved as well as we can observe from the KPSS test. The seasonal component shows us that the sales tend to increase towards the middle of the week. We can't say that there is a particular trend in the sales. But we can say that the sales increases during fall and winter times due to the special days. 
+
+
+# 7.2.b Decomposition at Frequency= 30
+
+```{r , echo=FALSE}
+ts_yuztem2 <- ts(data_yuztem$sold_count,frequency=30)
+decompose_yuztem2<- decompose(ts_yuztem2,type="multiplicative")
+plot(decompose_yuztem2)
+summary(ur.kpss(decompose_yuztem2$random)) 
+
+```
+The random component is not following the constant variance and zero mean assumption, however the kpss test shows that stationarity is achieved. The seasonal component shows that there is an increase towards the end of the 30 day period. Finally the trend component shows that the sales are decreasing towards the summer and high in fall. 
+
+We will continue with daily decomposition since the random component is poviding a better result.
+
+# 7.3 ARIMA Model
+
+The sinusoidal pattern in the acf plot shows that we can add a AR parameter and p=1 and p=3 are possible options depending on the PACF plot.
+
+PACF plot doesn't have any sinusoidal or decreasing pattern so there is no need to add a MA parameter. 
+
+```{r , echo=FALSE}
+acf(decompose_yuztem$random,na.action=na.pass)
+pacf(decompose_yuztem$random,na.action=na.pass)
+```
+
+
+```{r , echo=FALSE}
+yuztem_model1 = arima(decompose_yuztem$random, order = c(1,0,0))
+AIC1=AIC(yuztem_model1)
+
+yuztem_model2 = arima(decompose_yuztem$random, order = c(3,0,0))
+AIC2=AIC(yuztem_model2)
+
+rbind(c("model 1", "model 2"),c(AIC1,AIC2))
+```
+
+Since model 2 is providing a lower AIC value it seems to be better than model 1.
+
+# 7.4 Regressor Analysis
+```{r , echo=FALSE}
+data_yuztem[ , w_day := as.factor(w_day)]
+data_yuztem[ , month := as.factor(month)]
+data_yuztem = data_yuztem[ , -3]
+lm_yuztem = lm(sold_count ~ . , data_yuztem)
+summary(lm_yuztem)
+```
+
+
+The most significant input attributes can be seen as price, visit_count,basket_count,category_sold,category_visits and category_favored. Since visit_count and category_visits are correlated using only one of them would be a better option and since price has many missing values, we want to avoid using it.
+
+```{r , echo=FALSE}
+par(mfrow=c(2,2))
+plot(decompose_yuztem$random,data_yuztem$category_favored,main="Category_favored")
+plot(decompose_yuztem$random,data_yuztem$basket_count,main="Basket_count")
+plot(decompose_yuztem$random,data_yuztem$category_sold,main="Category_sold")
+plot(decompose_yuztem$random,data_yuztem$visit_count,main="Visit_count")
+```
+
+After the visual inspection we decided to continue with basket_count and category_favored as regressors. 
+
+
+
+# 7.5 ARIMAX Model
+Now, we are going to add the regression matrix to the ARIMA models that we found before, and see if there is any improvement. 
+
+```{r , echo=FALSE}
+regressor_yuztem = cbind(data_yuztem$basket_count,data_yuztem$category_favored)
+yuztem_arimax1=Arima(decompose_yuztem$random, order = c(1,0,0), xreg = regressor_yuztem)
+AIC1=AIC(yuztem_arimax1)
+
+yuztem_arimax2=Arima(decompose_yuztem$random, order = c(3,0,0), xreg = regressor_yuztem)
+AIC2=AIC(yuztem_arimax2)
+
+yuztem_arimax3=auto.arima(decompose_yuztem$random, xreg = regressor_yuztem)
+AIC3=AIC(yuztem_arimax3)
+
+rbind(c("model 1", "model 2","auto.arima"),c(AIC1,AIC2,AIC3))
+
+```
+
+The models are improved. There is a significant decrease in the AIC values. Also, auto.arima function provided a slightly better result. The model provided with auto.arima is a SARIMAX model with parameters (0,1,2)(2,0,0)[30]. 
+
+```{r , echo=FALSE}
+summary(yuztem_arimax3)
+```
+
+# 7.6 Performance of the Models 
+
+```{r , echo=FALSE}
+yuztem_fitted1=fitted(yuztem_arimax1)
+yuztem_fitted1_transformed=yuztem_fitted1*decompose_yuztem$seasonal*decompose_yuztem$trend
+actual_yuztem0 = as.numeric(ts_yuztem[333:339])
+fitted_yuztem0 = as.numeric(yuztem_fitted1_transformed[333:339])
+perf1 = accu(actual_yuztem0,fitted_yuztem0)
+perf1
+
+yuztem_fitted2=fitted(yuztem_arimax2)
+yuztem_fitted2_transformed=yuztem_fitted2*decompose_yuztem$seasonal*decompose_yuztem$trend
+actual_yuztem = as.numeric(ts_yuztem[333:339])
+fitted_yuztem = as.numeric(yuztem_fitted2_transformed[333:339])
+perf2 = accu(actual_yuztem,fitted_yuztem)
+perf2
+
+yuztem_fitted3=fitted(yuztem_arimax3)
+yuztem_fitted3_transformed=yuztem_fitted3*decompose_yuztem$seasonal*decompose_yuztem$trend
+actual_yuztem3 = as.numeric(ts_yuztem[330:336])
+fitted_yuztem3 = as.numeric(yuztem_fitted3_transformed[330:336])
+perf3 = accu(actual_yuztem3,fitted_yuztem3)
+perf3
+
+```
+The model 2 ,which have parameters (3,0,0), seems to be a better model due to its lower RMSE and MAPE value.
+
+
+```{r , echo=FALSE}
+
+```
+
+## 8. Model of Bluetooth Headphone Sales  
+
+# 8.1 Visualisation of the Data 
+
+There is a frequent demand for the headphones. There is no decreasing or increasing trend, but some peaks are observed probably due to some promotions. Highest peak is observed during July 2020. 
+
+```{r , echo=FALSE}
+ggplot(data[product_content_id==6676673],aes(x=event_date,y=sold_count))+geom_line()+labs(y="Number of Units Sold",x="Time",title = "Sales of the Bluetooth Headphones")
+```
+
+```{r , echo=FALSE}
+summary(ur.kpss(data_kulaklik$sold_count)) 
+```
+The KPSS test shows that the series is not stationary. 
+
+# 8.2 Decomposition 
+
+# 8.2.a Daily Decompostion
+Since there is no decreasing or increasing variance, additive decomposition is a better option. 
+
+```{r , echo=FALSE}
+ts_kulaklik=ts(data_kulaklik$sold_count,frequency=7)
+decomposed_kulaklik<-decompose(ts_kulaklik,type="additive")
+plot(decomposed_kulaklik)
+summary(ur.kpss(decomposed_kulaklik$random)) 
+```
+The random component is satisfing the assumptions and kpss test shows that we achieved stationartiy. We can observe the outlier points from the random component. The seasonal component shows that the sales tend to increase towards the middle of the week. There is no particular pattern in the trend component.
+
+# 8.2.b Decompostion at Frequency=30
+
+```{r , echo=FALSE}
+ts_kulaklik2=ts(data_kulaklik$sold_count,frequency=30)
+decomposed_kulaklik2<-decompose(ts_kulaklik2,type="additive")
+plot(decomposed_kulaklik2)
+summary(ur.kpss(decomposed_kulaklik2$random)) 
+```
+The random component is satisfying the assumptions and the kpss test shows that we achieved stationarity. The seasonal component shows that sales are increasing towards the end of the 30-day period and the trend component doesn't show any particular pattern. 
+
+We will continue with daily decomposition due to the better distribution of the random component. 
+
+
+# 8.3 ARIMA Model
+P=1 and p=3 can be used as an AR parameter depending on the sinusoidal pattern in the ACF plot and the decreasing significance in PACF after lag3. 
+There is no need for MA parameter. 
+
+```{r , echo=FALSE}
+acf(decomposed_kulaklik$random,na.action=na.pass)
+pacf(decomposed_kulaklik$random,na.action=na.pass)
+```
+
+
+```{r , echo=FALSE}
+kulaklik_model1 = arima(decomposed_kulaklik$random, order = c(1,0,0))
+AIC1=AIC(kulaklik_model1)
+
+kulaklik_model2 = arima(decomposed_kulaklik$random, order = c(3,0,0))
+AIC2=AIC(kulaklik_model2)
+
+
+rbind(c("model 1", "model 2"),c(AIC1,AIC2))
+```
+
+
+Model 2, which has parameters (3,0,0) is better due to its lower AIC. 
+
+# 8.4 Regressor Analysis
+
+```{r , echo=FALSE}
+data_kulaklik[ , w_day := as.factor(w_day)]
+data_kulaklik[ , month := as.factor(month)]
+data_kulaklik = data_kulaklik[ , -3]
+lm_kulaklik = lm(sold_count ~ . , data_kulaklik)
+summary(lm_kulaklik)
+```
+The most significant input attributes are price, basket_count, category_sold, category_visits and category_favored. Due to the dirty nature of price we decided not to use it as a regressor. 
+
+```{r , echo=FALSE}
+par(mfrow=c(2,2))
+plot(decomposed_kulaklik$random,data_kulaklik$category_favored,main="Category_favored")
+plot(decomposed_kulaklik$random,data_kulaklik$basket_count,main="Basket_count")
+plot(decomposed_kulaklik$random,data_kulaklik$category_sold,main="Category_sold")
+plot(decomposed_kulaklik$random,data_kulaklik$category_visits,main="Category_visits")
+```
+After the visual inspection we decided that all of the attributes can be used as regressors.
+
+# 8.5 ARIMAX Model
+
+```{r , echo=FALSE}
+regressor_kulaklik = cbind(data_kulaklik$basket_count,data_kulaklik$category_favored,data_kulaklik$category_visits,data_kulaklik$category_sold)
+kulaklik_arimax1=Arima(decomposed_kulaklik$random, order = c(2,0,1), xreg = regressor_kulaklik)
+AIC1=AIC(kulaklik_arimax1)
+
+kulaklik_arimax2=Arima(decomposed_kulaklik$random, order = c(2,0,2), xreg = regressor_kulaklik)
+AIC2=AIC(kulaklik_arimax2)
+
+kulaklik_arimax3=auto.arima(decomposed_kulaklik$random, xreg = regressor_kulaklik)
+AIC3=AIC(kulaklik_arimax3)
+
+rbind(c("model 1", "model 2","auto.arima"),c(AIC1,AIC2,AIC3))
+```
+
+The AIC values decreased significantly and model 1 is providing a better result. The SARIMAX model, which is found by using the Auto.arima function provided a slightly better result with parameters (1,0,0)(0,0,1)[7].
+
+
+# 8.6 Performance of the Models
+
+```{r , echo=FALSE}
+kulaklik_fitted1=fitted(kulaklik_arimax1)
+kulaklik_fitted1_transformed=kulaklik_fitted1*decomposed_kulaklik$seasonal*decomposed_kulaklik$trend
+actual_kulaklik0 = as.numeric(ts_kulaklik[333:339])
+fitted_kulaklik0 = as.numeric(kulaklik_fitted1_transformed[333:339])
+perf1 = accu(actual_kulaklik0,fitted_kulaklik0)
+perf1
+
+kulaklik_fitted2=fitted(kulaklik_arimax2)
+kulaklik_fitted2_transformed=kulaklik_fitted2*decomposed_kulaklik$seasonal*decomposed_kulaklik$trend
+actual_kulaklik = as.numeric(ts_kulaklik[333:339])
+fitted_kulaklik = as.numeric(kulaklik_fitted2_transformed[333:339])
+perf2 = accu(actual_kulaklik,fitted_kulaklik)
+perf2
+
+kulaklik_fitted3=fitted(kulaklik_arimax3)
+kulaklik_fitted3_transformed=kulaklik_fitted3*decomposed_kulaklik$seasonal*decomposed_kulaklik$trend
+actual_kulaklik3 = as.numeric(ts_kulaklik[330:336])
+fitted_kulaklik3 = as.numeric(kulaklik_fitted3_transformed[330:336])
+perf3 = accu(actual_kulaklik3,fitted_kulaklik3)
+perf3
+```
+
+The model 2 ,which have parameters (2,0,2), seems to be a better model due to its lower RMSE and MAPE value.
+
+## 9. Model of Coat Sales  
+
+# 9.1 Visualisation of the Data 
+
+The sales of the coat is following a pattern, where the sales are increasing during fall and approach to zero during summer and spring time. Due to the lack of data it's hard to comment on whether there is an increasing or decreasing trend. 
+
+Outliers are observed at the end of November. During Black Friday, sales reached to a peak level. The other special days and campaigns are also causing an increase in sales.
+
+
+```{r }
+ggplot(data_mont,aes(event_date,sold_count)) + geom_line() + xlab("Date") + ylab("Number of Mont Sales") 
+
+```
+
+The result of the KPSS test shows that the data is not stationary, which means that the data have seasonal and trend components which must me removed to achieve stationarity. 
+
+```{r }
+summary(ur.kpss(data_mont$sold_count)) 
+
+```
+
+# 9.2 Decomposition 
+
+# 9.2.a Daily Decompostion
+
+In order to remove the effect of increasing variance during the fall, multiplicative decomposition can be applied. 
+
+Below you can find the plot of the multiplicative decomposition and the result of the KPSS test. KPSS test shows that the stationarity is achieved, however the random component doesn't really satisfy the mean zero assumption. So, we can check the additive decomposition as well. 
+
+```{r , echo=FALSE}
+ts_mont <- ts(data_mont$sold_count,frequency=7)
+decompose_mont_multip <- decompose(ts_mont,type="multiplicative")
+plot(decompose_mont_multip)
+summary(ur.kpss(decompose_mont_multip$random)) 
+
+```
+
+In the additive decomposition we achieved a better distribution in the random component since the zero mean assumption is achieved. Also the KPSS test shows that the random component is stationary.However, some unusual peaks are observed in the random component due to the outliers. The trend component shows an increase during the fall and the beginning of winter. Since there is no sales during summer and spring, the trend is zero during these times. The daily seasonality shows that the sales are increasing in the beginning of the week and decreasing towards the end of the week. 
+
+```{r , echo=FALSE}
+ts_mont <- ts(data_mont$sold_count,frequency=7)
+decompose_mont_add <- decompose(ts_mont,type="additive")
+plot(decompose_mont_add)
+summary(ur.kpss(decompose_mont_add$random)) 
+```
+# 9.2.b Addition of lagged variables
+
+In order to decide on which lagged variables to use, we should check the ACF and PACF plots. We can't observe any seasonality in the ACF plot since the peaks are not following a periodical pattern. However, there is a high autocorrelation in lag 1, which suggests that  today's sales are affecting tomorrow's sales, so we  decided to add lag 1. We decided to add lag 7 as well to check for the weekly seasonality. 
+
+```{r , echo=FALSE}
+acf(data_mont$sold_count, lag.max = 50)
+pacf(data_mont$sold_count, lag.max = 50)
+```
+
+```{r , echo=FALSE}
+acf(diff(data_mont$sold_count,7), lag.max = 50)
+summary(ur.kpss(diff(data_mont$sold_count,7))) 
+```
+Lag 7 differencing improved the ACF plot, but still there is high autocorrelation in lag 1. Also, according to the KPSS test we achieved stationarity. 
+
+
+```{r , echo=FALSE}
+acf(diff(data_mont$sold_count,1), lag.max = 50) 
+summary(ur.kpss(diff(data_mont$sold_count,1))) 
+```
+Lag 1 differencing provided a great result on KPSS test and the ACF plot improved as well. So, the next step is to add lag 1 and lag 7 to the data set and we will continue with that data set. 
+
+```{r , echo=FALSE}
+data_mont[,lag1:=shift(sold_count,1)]
+data_mont[,lag7:=shift(sold_count,7)]
+```
+
+
+# 9.3 ARIMA Models 
+
+ACF and PACF plots are helpful visualization tools for finding the appropriate parameters to use in the ARIMA model.
+
+There is a sinusoidal pattern in the ACF plot, so AR parameter can be added. In order to find the value of the AR parameter PACF plot has to be checked.The significance of partial autocorrelation is decreasing after lag 1 so p=1 can be used. 
+
+PACF plot has a sinusoidal pattern as well. The high autocorrelation at lag 1 in the ACF plot shows that we can use q=1. Also, q=5 can be used. 
+
+```{r , echo=FALSE}
+acf(data_mont$sold_count, na.action = na.pass,lag.max = 50)
+pacf(data_mont$sold_count,na.action = na.pass, lag.max = 50)
+```
+The following ARIMA models with parameters (1,0,5) and (1,0,1) are built depending on our parameter analysis. Model 1 is chosen due to its lower AIC value.  
+
+```{r , echo=FALSE}
+model1 = arima(data_mont$sold_count, order = c(1,0,5))
+summary(model1)
+
+model2 = arima(data_mont$sold_count, order = c(1,0,1))
+summary(model2)
+
+```
+
+
+## 9.4 Regressor Analysis 
+In order to find which regressors to use in the model linear regression model is built. Some additional regressors like weekday and month info are introduced to the data, which may account for the sale patterns of the product.
+
+```{r , echo=FALSE}
+data_mont[ , w_day := as.factor(w_day)]
+data_mont[ , month := as.factor(month)]
+data_mont = data_mont[ , -3]
+lm_mont = lm(sold_count ~ . , data_mont)
+summary(lm_mont)
+```
+
+Basket_count and category_favored can be used due to their high significance in the model compared to other attributes.
+
+```{r , echo=FALSE}
+lm_mont2 = lm(sold_count ~ basket_count+category_favored, data_mont)
+summary(lm_mont2) 
+```
+
+The linear regression model with the basket_count and category_favored attributes seems to be valid depending on the low p-value for the overall model and the high value of adjusted R-squared.
+
+So, we decided to use basket_count and category_favored attributes as regressors.
+
+
+# 9.5 ARIMAX Model
+
+Basket_count and Category_favored attributes are added to the ARIMA model found in section 9.3. The AIC value decreased significantly, which is a sign for improvement. 
+
+```{r , echo=FALSE}
+regressor_mont = cbind(data_mont$basket_count,data_mont$category_favored)
+x_mont = arima(data_mont$sold_count, order = c(1,0,5), xreg = regressor_mont )
+summary(x_mont)
+```
+
+# 9.6 Performance of the Models
+
+The one week forecast is made with the three different models that are found throughout the analysis process. Each model is evaluated with performance measures.
+
+```{r , echo=FALSE}
+train_start=as.Date('2020-05-25')
+test_start=as.Date('2021-04-25')
+test_end=as.Date('2021-05-01')
+test_dates=seq(test_start,test_end,by='day')
+test_dates
+
+forecast_ahead=1
+results=vector('list',length(test_dates))
+i=1
+
+for(i in 1:length(test_dates)){
+  current_date=test_dates[i]-forecast_ahead
+  
+  past_data=data_mont[event_date<=current_date]
+  forecast_data=data_mont[event_date==test_dates[i]]
+  
+  #arima model 1 0 5
+  mont_model1 = arima(data_mont$sold_count, order = c(1,0,5) , xreg = regressor_mont)
+  forecasted=round(predict(mont_model1, newxreg=tail(regressor_mont,1),  n.ahead =1)$pred)
+  forecast_data[,model1:=as.numeric(forecasted)]
+  
+  #arima model 1 0 4
+  mont_model2 = arima(data_mont$sold_count, order = c(1,0,4) , xreg = regressor_mont)
+  forecasted=round(predict(mont_model2, newxreg=tail(regressor_mont,1),  n.ahead =1)$pred)
+  forecast_data[,model2:=as.numeric(forecasted)]
+  
+  #autoarima 
+  mont_model3 = auto.arima(data_mont$sold_count, xreg = regressor_mont)
+  forecasted=round(forecast(mont_model3, xreg = tail(regressor_mont,1), h = 1 )$mean)
+  forecast_data[,model3:=as.numeric(forecasted)]
+  
+  results[[i]]=forecast_data
+}
+
+overall_results=rbindlist(results) 
+melted_result=melt(overall_results,c('event_date','sold_count'),c('model1','model2','model3'))
+
+```
+
+
+```{r , echo=FALSE}
+melted_result[,accu(sold_count,value),by=list(variable)]
+performance=melted_result[,accu(sold_count,value),by=list(variable)]
+performance
+```
+Since the forecasts are equal to 0, we get NA's in some of the performance measured, that's why we are not able to compare the models. 
+
+
+
+## 10. Model of Vacuum Cleaner  Sales  
+
+# 10.1 Visualisation of the Data 
+
+Sales of Vacuum Cleaner doesn't seem to have any seasonal pattern. Probably the small peaks in the sales are during promotion times. Again we are observing a very high peak during the Black Friday, which can be categorized as an outlier point. 
+
+
+```{r , echo=FALSE}
+ggplot(data[product_content_id==7061886],aes(x=event_date,y=sold_count))+geom_line()+labs(y="Number of Units Sold",x="Time",title = "Sales of the Vacuum Cleaner")
+```
+
+The KPSS test shows that the series is not stationary 
+
+```{r , echo=FALSE}
+summary(ur.kpss(data_supurge$sold_count)) 
+
+```
+# 10.2 Decomposition 
+
+The sales data is available for only 13 months. That's why the number of periods is not sufficient to obtain  weekly and monthly seasonality by using decompose() function. So, the decompose function is only working on the daily level. So, we decided to try decompose with different frequency values, which are 7 and 30.
+
+# 10.2.a Daily Decompostion (Frequency=7)
+
+Multiplicative decomposition is a better option due to the increasing variance, especially during the November and December.   
+
+```{r , echo=FALSE}
+ts_supurge=ts(data_supurge$sold_count,frequency=7)
+decomposed_supurge<-decompose(ts_supurge,type="multiplicative")
+plot(decomposed_supurge)
+summary(ur.kpss(decomposed_supurge$random)) 
+```
+We can see that we achieved stationarity depending on the KPSS test. Also the random component is following the mean zero and constant variance assumptions. The seasonal component shows that the sales tend to increase towards the middle of the weak, and decrease towards the end of the week. There is no specific trend, but we can observe the effect of Black Friday on the trend component. 
+
+We can continue with daily decomposition since random component satisfies the assumptions and stationarity is achieved.
+
+
+# 10.2.b Decompostion at Frequency=30
+
+```{r , echo=FALSE}
+ts_supurge2=ts(data_supurge$sold_count,frequency=30)
+decomposed_supurge2<-decompose(ts_supurge2,type="multiplicative")
+plot(decomposed_supurge2)
+summary(ur.kpss(decomposed_supurge2$random)) 
+```
+The KPSS test shows that we achieved stationarity, and the random component is following the constant variance assumption, however the it is not following the zero mean assumption. The trend component shows the increase in sales during the fall.The seasonality component shows that in every 30-day period the sales tend to increase towards the end of that period. 
+
+Since the daily decomposition is providing a better random component we will continue with it.
+
+# 10.3 ARIMA Model
+
+First we need to check ACF and PACF to decide on which parameter to use. 
+
+
+```{r , echo=FALSE}
+acf(decomposed_supurge$random,na.action=na.pass)
+pacf(decomposed_supurge$random,na.action=na.pass)
+```
+We can add AR parameter, since ACF plot is following a sinusoidal pattern. After lag 2 signifigance of partial autocorrelation is decreasing so p=2 can be considered. 
+
+We can add MA parameter as well, since PACF plot is following a sinusoidal pattern. Depending on the ACF plot, we can try several values as MA parameter such as q=1 and q=2. 
+
+```{r , echo=FALSE}
+supurge_model1 = arima(decomposed_supurge$random, order = c(2,0,1))
+AIC1=AIC(supurge_model1)
+
+supurge_model2 = arima(decomposed_supurge$random, order = c(2,0,2))
+AIC2=AIC(supurge_model2)
+
+rbind(c("model 1", "model 2"),c(AIC1,AIC2))
+```
+The model 2 ,which have parameters (2,0,2), seems to be a better model due to its lower AIC value.
+
+# 10.4 Regressor Analysis
+
+In order to find the significance of the input attributes on explaining the sold_count, we built a linear regression model.Then we plotted the ones with high significance values with the random component. We chose the ones that would work well on explaining the behavior of the random component. Note that this method is going to be used for every product. 
+
+
+```{r , echo=FALSE}
+data_supurge[ , w_day := as.factor(w_day)]
+data_supurge[ , month := as.factor(month)]
+data_supurge = data_supurge[ , -3]
+lm_supurge = lm(sold_count ~ . , data_supurge)
+summary(lm_supurge)
+```
+
+The most significant input attributes can be seen as basket_count,category_sold,category_visits and category_favored. 
+
+
+```{r , echo=FALSE}
+par(mfrow=c(2,2))
+plot(decomposed_supurge$random,data_supurge$category_favored,main="Category_favored")
+plot(decomposed_supurge$random,data_supurge$basket_count,main="Basket_count")
+plot(decomposed_supurge$random,data_supurge$category_sold,main="Category_sold")
+plot(decomposed_supurge$random,data_supurge$category_visits,main="category_visits")
+```
+We chose to use category_favored and basket_count as regressors since they have provide a better distribution with the random component.
+
+# 10.5 ARIMAX Model
+
+Now, we are going to add the regression matrix to the ARIMA models that we found before, and see if there is any improvement. 
+
+
+```{r , echo=FALSE}
+regressor_supurge = cbind(data_supurge$basket_count,data_supurge$category_favored)
+supurge_arimax1=Arima(decomposed_supurge$random, order = c(2,0,1), xreg = regressor_supurge)
+AIC1=AIC(supurge_arimax1)
+
+supurge_arimax2=Arima(decomposed_supurge$random, order = c(2,0,2), xreg = regressor_supurge)
+AIC2=AIC(tayt_arimax2)
+
+supurge_arimax3=auto.arima(decomposed_supurge$random, xreg = regressor_supurge)
+AIC3=AIC(supurge_arimax3)
+
+rbind(c("model 1", "model 2","auto.arima"),c(AIC1,AIC2,AIC3))
+
+```
+As we can see both of the models are improved with lower AIC values. Still model 1 is providing a better result. Auto.arima function didn't provide a better result.
+
+# 10.6 Performance of the Models
+
+Now we will evaluate the models over a one week test period. 
+
+
+```{r , echo=FALSE}
+supurge_fitted1=fitted(supurge_arimax1)
+supurge_fitted1_transformed=supurge_fitted1*decomposed_supurge$seasonal*decomposed_supurge$trend
+actual_supurge0 = as.numeric(ts_supurge[333:339])
+fitted_supurge0 = as.numeric(supurge_fitted1_transformed[333:339])
+perf1 = accu(actual_supurge0,fitted_supurge0)
+perf1
+
+supurge_fitted2=fitted(supurge_arimax2)
+supurge_fitted2_transformed=supurge_fitted2*decomposed_supurge$seasonal*decomposed_supurge$trend
+actual_supurge = as.numeric(ts_supurge[333:339])
+fitted_supurge = as.numeric(supurge_fitted2_transformed[333:339])
+perf2 = accu(actual_supurge,fitted_supurge)
+perf2
+
+supurge_fitted3=fitted(supurge_arimax3)
+supurge_fitted3_transformed=supurge_fitted3*decomposed_supurge$seasonal*decomposed_supurge$trend
+actual_supurge3 = as.numeric(ts_supurge[330:336])
+fitted_supurge3 = as.numeric(supurge_fitted3_transformed[330:336])
+perf3 = accu(actual_supurge3,fitted_supurge3)
+perf3
+```
+
+The model 3 ,which have parameters (0,0,1), seems to be a better model due to its lower RMSE value.
+
+
+# 11. Conclusion
+
+In this homework we constructed a model that try to forecast the numerous products which are selling in Trendyol. In this project firstly the seasonality and trend of the sales are analyzed by decomposing the data on different levels. Second step is to fit an ARIMA model based on the findings. We made some guesses about parameters (p,d,q) by plotting ACF and PACF funticonn. Then we checked AUC values for each parameter combinations and determined which model is better. Third step is to analyze the possible regressors that can improve our model. Fourth and the final step is to build an ARIMAX model and compare the performance measures of the ARIMA and ARIMAX models on a test period of one week. After these steps completed, we determined the best model according to test results. We think our model shows a good performance. On the other hand using other resources can result better results but we satisfy from our anlaysis.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
